@@ -5,21 +5,21 @@ import jax.numpy as jnp
 import numpy as np
 import requests
 from gwpy.timeseries import TimeSeries
-from jaxtyping import Array, Float, PRNGKeyArray, jaxtyped
-from beartype import beartype as typechecker
+from jaxtyping import Array, PRNGKeyArray, Float, jaxtyped
 from scipy.interpolate import interp1d
 from scipy.signal.windows import tukey
 
-from jimgw.constants import C_SI, EARTH_SEMI_MAJOR_AXIS, EARTH_SEMI_MINOR_AXIS
+from jimgw.constants import EARTH_SEMI_MAJOR_AXIS, EARTH_SEMI_MINOR_AXIS, C_SI
 from jimgw.single_event.wave import Polarization
 
 DEG_TO_RAD = jnp.pi / 180
 
 # TODO: Need to expand this list. Currently it is only O3.
-asd_file_dict = {
+psd_file_dict = {
     "H1": "https://dcc.ligo.org/public/0169/P2000251/001/O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt",
     "L1": "https://dcc.ligo.org/public/0169/P2000251/001/O3-L1-C01_CLEAN_SUB60HZ-1240573680.0_sensitivity_strain_asd.txt",
     "V1": "https://dcc.ligo.org/public/0169/P2000251/001/O3-V1_sensitivity_strain_asd.txt",
+    "ET-D": "https://git.ligo.org/lscsoft/bilby/-/raw/master/bilby/gw/detector/noise_curves/ET_D_psd.txt"
 }
 
 
@@ -407,31 +407,443 @@ class GroundBased2G(Detector):
         signal = self.fd_response(freqs, h_sky, params) * align_time
         self.data = signal + noise_real + 1j * noise_imag
 
-        # also calculate the optimal SNR and match filter SNR
-        optimal_SNR = jnp.sqrt(jnp.sum(signal * signal.conj() / var).real)
-        match_filter_SNR = jnp.sum(self.data * signal.conj() / var) / optimal_SNR
-
-        print(f"For detector {self.name}:")
-        print(f"The injected optimal SNR is {optimal_SNR}")
-        print(f"The injected match filter SNR is {match_filter_SNR}")
-
-    @jaxtyped(typechecker=typechecker)
+    @jaxtyped
     def load_psd(
         self, freqs: Float[Array, " n_sample"], psd_file: str = ""
     ) -> Float[Array, " n_sample"]:
         if psd_file == "":
             print("Grabbing GWTC-2 PSD for " + self.name)
-            url = asd_file_dict[self.name]
+            url = psd_file_dict[self.name]
             data = requests.get(url)
             open(self.name + ".txt", "wb").write(data.content)
             f, asd_vals = np.loadtxt(self.name + ".txt", unpack=True)
-            psd_vals = asd_vals**2
+        else:
+            f, asd_vals = np.loadtxt(psd_file, unpack=True)
+        psd_vals = asd_vals**2
+
+        psd = interp1d(f, psd_vals, fill_value=(psd_vals[0], psd_vals[-1]))(freqs)  # type: ignore
+        psd = jnp.array(psd)
+        return psd
+
+
+class TriangularGroundBased3G(Detector):
+    polarization_mode: list[Polarization]
+    frequencies: Float[Array, " n_sample"]
+    data: Float[Array, " n_sample 3"]
+    psd: Float[Array, " n_sample 3 3"]
+
+    # giving the values for one of the three detectors
+    # the rest will be automatically calculated
+    latitude: Float = 0
+    longitude: Float = 0
+    xarm_azimuth: Float = 0
+    yarm_azimuth: Float = 0
+    xarm_tilt: Float = 0
+    yarm_tilt: Float = 0
+    elevation: Float = 0
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.name})"
+
+    def __init__(self, name: str, **kwargs) -> None:
+        self.name = name
+
+        self.latitude = kwargs.get("latitude", 0)
+        self.longitude = kwargs.get("longitude", 0)
+        self.elevation = kwargs.get("elevation", 0)
+        self.xarm_azimuth = kwargs.get("xarm_azimuth", 0)
+        self.yarm_azimuth = kwargs.get("yarm_azimuth", 0)
+        self.xarm_tilt = kwargs.get("xarm_tilt", 0)
+        self.yarm_tilt = kwargs.get("yarm_tilt", 0)
+        modes = kwargs.get("mode", "pc")
+
+        self.polarization_mode = [Polarization(m) for m in modes]
+        self.frequencies = jnp.array([])
+        self.data = jnp.array([])
+        self.psd = jnp.array([])
+
+    @staticmethod
+    def _get_arm(
+        lat: Float, lon: Float, tilt: Float, azimuth: Float
+    ) -> Float[Array, " 3"]:
+        """
+        Construct detector-arm vectors in Earth-centric Cartesian coordinates.
+
+        Parameters
+        ---------
+        lat : Float
+            vertex latitude in rad.
+        lon : Float
+            vertex longitude in rad.
+        tilt : Float
+            arm tilt in rad.
+        azimuth : Float
+            arm azimuth in rad.
+
+        Returns
+        -------
+        arm : Float[Array, " 3"]
+            detector arm vector in Earth-centric Cartesian coordinates.
+        """
+        e_lon = jnp.array([-jnp.sin(lon), jnp.cos(lon), 0])
+        e_lat = jnp.array(
+            [-jnp.sin(lat) * jnp.cos(lon), -jnp.sin(lat) * jnp.sin(lon), jnp.cos(lat)]
+        )
+        e_h = jnp.array(
+            [jnp.cos(lat) * jnp.cos(lon), jnp.cos(lat) * jnp.sin(lon), jnp.sin(lat)]
+        )
+
+        return (
+            jnp.cos(tilt) * jnp.cos(azimuth) * e_lon
+            + jnp.cos(tilt) * jnp.sin(azimuth) * e_lat
+            + jnp.sin(tilt) * e_h
+        )
+
+    @property
+    def arms(self) -> tuple[Float[Array, " 3"],
+                            Float[Array, " 3"],
+                            Float[Array, " 3"]
+                            ]:
+        """
+        Detector arm vectors (x, y, z).
+
+        Returns
+        -------
+        x : Float[Array, " 3"]
+            x-arm vector.
+        y : Float[Array, " 3"]
+            y-arm vector.
+        z : Float[Array, " 3"]
+            z-arm vector
+        """
+        x = self._get_arm(
+            self.latitude, self.longitude, self.xarm_tilt, self.xarm_azimuth
+        )
+        y = self._get_arm(
+            self.latitude, self.longitude, self.yarm_tilt, self.yarm_azimuth
+        )
+        z = y - x
+        return x, y, z
+
+    @staticmethod
+    def _get_tensor(arm1, arm2) -> Float[Array, " 3 3"]:
+        """
+        Detector tensor defining the strain measurement.
+
+        Returns
+        -------
+        tensor : Float[Array, " 3 3"]
+                 detector tensor.
+        """
+
+        return 0.5 * (
+            jnp.einsum("i,j->ij", arm1, arm1) - jnp.einsum("i,j->ij", arm2, arm2)
+        )
+
+    @property
+    def tensors(self) -> tuple[Float[Array, " 3 3"],
+                               Float[Array, " 3 3"],
+                               Float[Array, " 3 3"]
+                               ]:
+        """
+        Detector tensor defining the strain measurement.
+
+        Returns
+        -------
+        D1_tensor : Float[Array, " 3 3"]
+                    D1 detector tensor.
+        D2_tensor : Float[Array, " 3 3"]
+                    D2 detector tensor.
+        D3_tensor : Float[Array, " 3 3"]
+                    D3 detector tensor.
+        """
+        x, y, z = self.arms
+
+        D1 = self._get_tensor(x, y)
+        D2 = self._get_tensor(z, -x)
+        D3 = self._get_tensor(-y, -z)
+
+        return D1, D2, D3
+
+    @property
+    def vertex(self) -> Float[Array, " 3"]:
+        """
+        Detector vertex coordinates in the reference celestial frame. Based
+        on arXiv:gr-qc/0008066 Eqs. (B11-B13) except for a typo in the
+        definition of the local radius; see Section 2.1 of LIGO-T980044-10.
+
+        Returns
+        -------
+        vertex : Float[Array, " 3"]
+            detector vertex coordinates.
+        """
+        # get detector and Earth parameters
+        lat = self.latitude
+        lon = self.longitude
+        h = self.elevation
+        major, minor = EARTH_SEMI_MAJOR_AXIS, EARTH_SEMI_MINOR_AXIS
+        # compute vertex location
+        r = major**2 * (
+            major**2 * jnp.cos(lat) ** 2 + minor**2 * jnp.sin(lat) ** 2
+        ) ** (-0.5)
+        x = (r + h) * jnp.cos(lat) * jnp.cos(lon)
+        y = (r + h) * jnp.cos(lat) * jnp.sin(lon)
+        z = ((minor / major) ** 2 * r + h) * jnp.sin(lat)
+        return jnp.array([x, y, z])
+
+    def delay_from_geocenter(self, ra: Float, dec: Float, gmst: Float) -> Float:
+        """
+        Calculate time delay between two detectors in geocentric
+        coordinates based on XLALArrivaTimeDiff in TimeDelay.c
+
+        https://lscsoft.docs.ligo.org/lalsuite/lal/group___time_delay__h.html
+
+        Parameters
+        ---------
+        ra : Float
+            right ascension of the source in rad.
+        dec : Float
+            declination of the source in rad.
+        gmst : Float
+            Greenwich mean sidereal time in rad.
+
+        Returns
+        -------
+        Float: time delay from Earth center.
+        """
+        delta_d = -self.vertex
+        gmst = jnp.mod(gmst, 2 * jnp.pi)
+        phi = ra - gmst
+        theta = jnp.pi / 2 - dec
+        omega = jnp.array(
+            [
+                jnp.sin(theta) * jnp.cos(phi),
+                jnp.sin(theta) * jnp.sin(phi),
+                jnp.cos(theta),
+            ]
+        )
+        return jnp.dot(omega, delta_d) / C_SI
+
+    def antenna_pattern(self, ra: Float, dec: Float, psi: Float, gmst: Float) -> list:
+        """
+        Computes {name} antenna patterns for {modes} polarizations
+        at the specified sky location, orientation and GMST.
+
+        In the long-wavelength approximation, the antenna pattern for a
+        given polarization is the dyadic product between the detector
+        tensor and the corresponding polarization tensor.
+
+        Parameters
+        ---------
+        ra : Float
+            source right ascension in radians.
+        dec : Float
+            source declination in radians.
+        psi : Float
+            source polarization angle in radians.
+        gmst : Float
+            Greenwich mean sidereal time (GMST) in radians.
+        modes : str
+            string of polarizations to include, defaults to tensor modes: 'pc'.
+
+        Returns
+        -------
+        result : list
+            antenna pattern values for {modes}.
+        """
+        D1, D2, D3 = self.tensors
+
+        antenna_patterns = []
+        for D in [D1, D2, D3]:
+            antenna_patterns_per_det = {}
+            for polarization in self.polarization_mode:
+                wave_tensor = polarization.tensor_from_sky(ra, dec, psi, gmst)
+                antenna_patterns_per_det[polarization.name] = jnp.einsum(
+                    "ij,ij->", D, wave_tensor
+                )
+            antenna_patterns.append(antenna_patterns_per_det)
+
+        return antenna_patterns
+
+    def td_response(
+        self,
+        time: Float[Array, " n_sample"],
+        h_sky: dict[str, Float[Array, " n_sample"]],
+        params: dict[str, Float],
+        **kwargs,
+    ) -> Float[Array, " 3 n_sample"]:
+        """
+        Modulate the waveform in the sky frame by the detector response in the time domain.
+        """
+        raise NotImplementedError
+
+    def fd_response(
+        self,
+        frequency: Float[Array, " n_sample"],
+        h_sky: dict[str, Float[Array, " n_sample"]],
+        params: dict[str, Float],
+        **kwargs,
+    ) -> Float[Array, " 3 n_sample"]:
+        """
+        Modulate the waveform in the sky frame by the detector response in the frequency domain.
+        """
+        ra, dec, psi, gmst = params["ra"], params["dec"], params["psi"], params["gmst"]
+        antenna_pattern = self.antenna_pattern(ra, dec, psi, gmst)
+        timeshift = self.delay_from_geocenter(ra, dec, gmst)
+
+        response = []
+
+        for antenna_pattern_per_det in antenna_pattern:
+            h_detector = jax.tree_util.tree_map(
+                lambda h, antenna: h
+                * antenna
+                * jnp.exp(-2j * jnp.pi * frequency * timeshift),
+                h_sky,
+                antenna_pattern_per_det,
+            )
+            response.append(jnp.sum(jnp.stack(jax.tree_util.tree_leaves(h_detector)), axis=0))
+        return jnp.array(response).T
+
+    def inject_signal(
+        self,
+        key: PRNGKeyArray,
+        freqs: Float[Array, " n_sample"],
+        h_sky: dict[str, Float[Array, " n_sample"]],
+        params: dict[str, Float],
+        psd_file_dict: dict = {'E1': '', 'E2': '', 'E3': ''},
+        csd_file_dict: dict = {'E12': '', 'E23': '', 'E13': ''},
+    ) -> None:
+        """
+        Inject a signal into the detector data.
+
+        Parameters
+        ----------
+        key : PRNGKeyArray
+            JAX PRNG key.
+        freqs : Float[Array, " n_sample"]
+            Array of frequencies.
+        h_sky : dict[str, Float[Array, " n_sample"]]
+            Array of waveforms in the sky frame. The key is the polarization mode.
+        params : dict[str, Float]
+            Dictionary of parameters.
+        psd_file_dict : dict
+            Dictionary with paths to the PSD files, with keys E1, E2, E3
+        csd_file_dict : dict
+            Dictionary with paths to the CSD files, with keys E12, E23, E13
+
+        Returns
+        -------
+        None
+        """
+        self.frequencies = freqs
+        E1_psd = self.load_psd(freqs, psd_file_dict['E1'])
+        E2_psd = self.load_psd(freqs, psd_file_dict['E2'])
+        E3_psd = self.load_psd(freqs, psd_file_dict['E3'])
+
+        E12_csd = self.load_csd(freqs, csd_file_dict['E12'])
+        E23_csd = self.load_csd(freqs, csd_file_dict['E23'])
+        E13_csd = self.load_csd(freqs, csd_file_dict['E13'])
+
+        psd = jnp.array([[E1_psd, E12_csd, E13_csd],
+                         [E12_csd.conj(), E2_psd, E23_csd],
+                         [E13_csd.conj(), E23_csd.conj(), E3_psd]])
+        self.psd = jnp.einsum('ijk->kij', psd)
+        cov = self.psd / (4 * (freqs[1] - freqs[0]))
+
+        mean = jnp.zeros(shape=freqs.shape + (3,))
+
+        key, subkey = jax.random.split(key, 2)
+
+        noises_re = jax.random.multivariate_normal(key, mean, cov / 2, shape=freqs.shape)
+        noises_im = jax.random.multivariate_normal(subkey, mean, cov / 2, shape=freqs.shape)
+        noises = noises_re + 1j * noises_im
+        align_time = jnp.exp(
+            -1j * 2 * jnp.pi * freqs * (params["epoch"] + params["t_c"])
+        )
+
+        signals = self.fd_response(freqs, h_sky, params)
+        self.data = jnp.array([signals.T[0] * align_time + noises.T[0],
+                               signals.T[1] * align_time + noises.T[1],
+                               signals.T[2] * align_time + noises.T[2]]).T
+
+        # calculate the optimal SNR and match filter SNR
+        inv_cov = jnp.linalg.inv(cov)
+
+        optimal_SNR_2 = jnp.einsum(
+            'ij,ijk,ik->',
+            signals,
+            inv_cov,
+            signals.conj()
+        ).real
+        optimal_SNR = jnp.sqrt(optimal_SNR_2)
+
+        match_filter_SNR = jnp.einsum(
+            'ij,ijk,ik,i->',
+            self.data,
+            inv_cov,
+            signals.conj(),
+            align_time.conj(),
+        )
+        match_filter_SNR /= optimal_SNR
+
+        print(f"For detector {self.name}:")
+        print(f"The correlated Optimal SNR is {optimal_SNR}")
+        print(f"The correlated match filter SNR is {match_filter_SNR}")
+
+        cov_uncorr = cov * jnp.einsum('i,jk->ijk', jnp.ones(freqs.shape), jnp.eye(3))
+        inv_cov_uncorr = jnp.linalg.inv(cov_uncorr)
+
+        optimal_SNR_2 = jnp.einsum(
+            'ij,ijk,ik->',
+            signals,
+            inv_cov_uncorr,
+            signals.conj()
+        ).real
+        optimal_SNR = jnp.sqrt(optimal_SNR_2)
+
+        match_filter_SNR = jnp.einsum(
+            'ij,ijk,ik,i->',
+            self.data,
+            inv_cov_uncorr,
+            signals.conj(),
+            align_time.conj(),
+        )
+        match_filter_SNR /= optimal_SNR
+
+        print(f"The uncorrelated Optimal SNR is {optimal_SNR}")
+        print(f"The uncorrelated match filter SNR is {match_filter_SNR}")
+
+    @jaxtyped
+    def load_psd(
+        self, freqs: Float[Array, " n_sample"], psd_file: str = ""
+    ) -> Float[Array, " n_sample"]:
+        if psd_file == "":
+            print("Grabbing ET-D PSD")
+            url = psd_file_dict["ET-D"]
+            data = requests.get(url)
+            open(self.name + ".txt", "wb").write(data.content)
+            f, psd_vals = np.loadtxt(self.name + ".txt", unpack=True)
         else:
             f, psd_vals = np.loadtxt(psd_file, unpack=True)
 
         psd = interp1d(f, psd_vals, fill_value=(psd_vals[0], psd_vals[-1]))(freqs)  # type: ignore
         psd = jnp.array(psd)
         return psd
+
+    @jaxtyped
+    def load_csd(
+        self, freqs: Float[Array, " n_sample"], csd_file: str = ""
+    ) -> Float[Array, " n_sample"]:
+        if csd_file == "":
+            print("Assuming no correlation in noise")
+            csd_vals = jnp.zeros(shape=freqs.shape)
+            f = freqs
+        else:
+            f, csd_vals = np.loadtxt(csd_file, unpack=True)
+
+        csd = interp1d(f, csd_vals, fill_value=(csd_vals[0], csd_vals[-1]))(freqs)  # type: ignore
+        csd = jnp.array(csd)
+        return csd
 
 
 H1 = GroundBased2G(
@@ -468,6 +880,19 @@ V1 = GroundBased2G(
     yarm_tilt=0,
     elevation=51.884,
     mode="pc",
+)
+
+# placed at "The Three Country Point NL / BE / DE"
+ET = TriangularGroundBased3G(
+    "ET",
+    latitude=50.75556943335024 * DEG_TO_RAD,
+    longitude=6.02059548306611 * DEG_TO_RAD,
+    xarm_azimuth=30 * DEG_TO_RAD,
+    yarm_azimuth=90 * DEG_TO_RAD,
+    xarm_tilt=0,
+    yarm_tilt=0,
+    elevation=0,
+    mode='pc',
 )
 
 detector_preset = {
