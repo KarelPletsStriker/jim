@@ -22,14 +22,11 @@ _[Documentatation and examples are a work in progress]_
 
 ## Installation
 
-You may install the latest released version of Jim through pip by doing
-```
-pip install jimGW
-```
+In order to install this forked version of JIM with the `TriangularGroundBased3G` and `SpaceBased` Detector classes.
 
-You may install the bleeding edge version by cloning this repo, or doing
 ```
-pip install git+https://github.com/kazewong/jim
+pip install git+[my own link will have to go here]
+pip install flowMC==0.2.4 evosax==0.1.5
 ```
 
 If you would like to take advantage of CUDA, you will additionally need to install a specific version of JAX by doing
@@ -54,3 +51,31 @@ Parameter estimation examples are in `example/ParameterEstimation`.
 ## Attribution
 
 Please cite the accompanying paper, [Wong, Isi, Edwards (2023)](https://github.com/kazewong/TurboPE/).
+
+# Changes made for the Space Based Detector Class
+
+In preparation of the Space detector class, two new python packages need to be installed additionally:  [`fastlisaresponse`](https://github.com/mikekatz04/lisa-on-gpu/tree/master) and [`lisatools`](https://github.com/mikekatz04/LISAanalysistools), managed by Michael Katz.
+
+Their installation is as follows (done after the `JIM` installation)
+
+## Installing the LISA packages
+First load the right modules (only relevant for users of VSC-HPC@KULeuven)
+```
+module purge
+module load CUDA/12 GCC/11.3.0 GSL FFTW/3.3.10-GCC-11.3.0
+```
+Then install the following packages via pip:
+
+```
+pip install multispline pygments matplotlib Cython numpy scipy h5py requests ipython astropy
+pip install cupy-cuda12x
+pip install lisaanalysistools
+```
+
+Finally, you should install the newest version of `fastlisaresponse` by copying it from git:
+```
+git clone https://github.com/mikekatz04/lisa-on-gpu.git
+cd lisa-on-gpu
+python scripts/prebuild.py
+pip install .
+```
