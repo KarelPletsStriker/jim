@@ -36,7 +36,7 @@ from jimgw.jim import Jim
 from jimgw.single_event.detector import Detector
 
 
-class SpaceBasedDetector(Detector):
+class SpaceBased(Detector):
     polarization_mode: list[Polarization]
     frequencies: Float[Array, " n_sample"]
     data: Float[Array, " n_sample 3"]
@@ -289,8 +289,6 @@ class SpaceBasedDetector(Detector):
         freqs, signals     = fd_response(params['T'], params['dt'], params['t0']  , {'with_freqs':True})
         
         # symmetric noise curves
-        where_freqs = (freqs>0)
-        freqs = freqs[where_freqs]
         
         self.frequencies = freqs
         
@@ -434,5 +432,9 @@ class SpaceBasedDetector(Detector):
             
         else:
                 raise NotImplementedError
+
+LISA_XYZ_equal = SpaceBased(
+        
+)
             
 
