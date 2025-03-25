@@ -8,6 +8,7 @@ from jaxtyping import Array, Float
 from scipy.interpolate import interp1d
 
 from jimgw.single_event.detector import Detector, TriangularGroundBased3G
+from jimgw.single_event.SpaceDetector import SpaceDetector
 from jimgw.prior import Prior
 from jimgw.single_event.waveform import Waveform
 from jimgw.base import LikelihoodBase
