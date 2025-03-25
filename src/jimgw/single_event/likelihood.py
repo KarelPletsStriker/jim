@@ -466,7 +466,7 @@ class HeterodynedTransientLikelihoodFD(TransientLikelihoodFD):
 
     @staticmethod
     def max_phase_diff(
-        f: npt.NDArray[np.float_],
+        f: npt.NDArray[np.float64],
         f_low: float,
         f_high: float,
         chi: Float = 1.0,
@@ -498,7 +498,7 @@ class HeterodynedTransientLikelihoodFD(TransientLikelihoodFD):
         return 2 * np.pi * chi * np.sum((f / f_star) ** gamma * np.sign(gamma), axis=1)
 
     def make_binning_scheme(
-        self, freqs: npt.NDArray[np.float_], n_bins: int, chi: float = 1
+        self, freqs: npt.NDArray[np.float64], n_bins: int, chi: float = 1
     ) -> tuple[Float[Array, " n_bins+1"], Float[Array, " n_bins"]]:
         """
         Make a binning scheme based on the maximum phase difference between the
