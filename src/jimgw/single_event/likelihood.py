@@ -82,11 +82,8 @@ class TransientLikelihoodFD(SingleEventLiklihood):
         )
         for detector in self.detectors:
             if isinstance(detector, SpaceBased):
-                waveform_dec = jnp.einsum(
-                    'ij,i->ij',
-                    detector.fd_response(frequencies, waveform_sky, params),
-                    
-                )
+                waveform_dec = detector.fd_response(frequencies, waveform_sky, params)
+                
                 psd_inv = jnp.linalg.inv(detector.psd)
                 
                 match_filter_SNR = (
