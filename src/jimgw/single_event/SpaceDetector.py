@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
 """
-LISA code written by Karel Plets - graphing the SNR spectrum
-Date: 28/02/2025
+LISA code written by Karel Plets - Implementing the SpaceBased Detector Class
+Date: 28/03/2025
 
 Notes:  ---------- CUMULATIVE VERSION-----------------
         
@@ -34,6 +34,7 @@ import jax.numpy as jnp
 
 from jimgw.jim import Jim
 from jimgw.single_event.detector import Detector
+from jimgw.single_event.wave import Polarization
 
 
 class SpaceBased(Detector):
@@ -55,8 +56,6 @@ class SpaceBased(Detector):
     # I don't think these will be as relevant
     
     
-    # New variables I want to add
-    orbit: str = 'equal'
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
@@ -89,8 +88,7 @@ class SpaceBased(Detector):
         self.use_gpu = kwargs.get('use_gpu', True ) 
         
         self.order = kwargs.get('order',25) # order of lagrangian interpolation, fastlisaresponse parameter
-        self.index_lambda = kwargs.get('index_lambda',6) # fastlisaresponse parameter, i forgot what exactly
-        self.index_beta = kwargs.get('index_beta',7) # fastlisaresponse parameter, i forgot what exactly
+        
     
     @staticmethod
     def get_orbit(self):
@@ -158,10 +156,9 @@ class SpaceBased(Detector):
         
     def td_response(
         self,
-        T: Float, # total duration
-        dt: Float, # time resolution
-        t0: Float, # start time, i.e. how much time of the generated waveform will be scrapped
         waveform, # GW class
+        params: dict[Float], # Simulation Parameters: 'T' (total duration), 't0' (start time, mostly to scrap shitty data), 'dt' (time resolution)
+        # 'index_lambda' (), 'index_beta' ()
         wave_parameters: list[Float], # waveform specific parameters
         **kwargs
     )-> Float[Array, " 3 n_sample"]:
@@ -181,11 +178,11 @@ class SpaceBased(Detector):
 
         wrapper = ResponseWrapper(
             waveform,
-            T,
-            dt,
-            index_lambda,
-            index_beta,
-            t0=t0,
+            params['T'],
+            params['dt'],
+            params['index_lambda'],
+            params['index_beta'],
+            t0=params['t0'],
             flip_hx=False,  # set to True if waveform is h+ - ihx
             use_gpu=self.use_gpu,
             remove_sky_coords=True,  # True if the waveform generator does not take sky coordinates
@@ -217,10 +214,12 @@ class SpaceBased(Detector):
         def maskbool(f,armlength, resolution = 1e-2):
             '''
             Masks away all the bad frequencies, i.e. all f \in \Bigcup_{n\in \mathb{N}} [ (-.01+n)/2L , (.01+n)/2L ] 
-            NOTE: assumes an approximate constant armlength!
+            NB: assumes an approximate constant armlength!
             Input:
             frequency
-            
+
+            Returns:
+            Boolean array with all the excluded frequencies
             '''
             
             f = jnp.asarray(f)
@@ -309,11 +308,11 @@ class SpaceBased(Detector):
         self.psd = psd
         
         print('Sampling the noise...')
+        
         mean = jnp.zeros(shape = freqs.shape + (6,))
         separated_noises = jax.random.multivariate_normal(key, mean, PSDs_to_covariance(cov) /2 , shape = freqs.shape)
-        #noises_re = jax.random.multivariate_normal(key, mean, cov / 2, shape=freqs.shape)
-        
         noises = separated_noise.T[:3] + 1j*separated_noise.T[3:]   # connecting real part of the noise and the imaginary part into a complex array
+        
         print('done!')
         
         print('Adding noise to the signals...')
@@ -370,12 +369,12 @@ class SpaceBased(Detector):
         
             S_ij_ij = S_ij_OMS(f, P = Parr[i,j] ) + S_ij_TM(f, A=Aarr[i,j] ) + S_ij_TM(f, A=Aarr[j,i] )
             S_ji_ji = S_ij_OMS(f, P = Parr[j,i] ) + S_ij_TM(f, A=Aarr[j,i] ) + S_ij_TM(f, A=Aarr[i,j] )
-            S_ij_ji = jnp.ejnp(2j*jnp.pi*f*Lij[j,i]) * S_ij_TM(f, A=Aarr[i,j] ) + jnp.ejnp(-2j*jnp.pi*f*Lij[i,j]) * S_ij_TM(f, A=Aarr[j,i])
-            S_ji_ij = jnp.ejnp(2j*jnp.pi*f*Lij[i,j]) * S_ij_TM(f, A=Aarr[j,i] ) + jnp.ejnp(-2j*jnp.pi*f*Lij[j,i]) * S_ij_TM(f, A=Aarr[i,j])
+            S_ij_ji = jnp.exp(2j*jnp.pi*f*Lij[j,i]) * S_ij_TM(f, A=Aarr[i,j] ) + jnp.exp(-2j*jnp.pi*f*Lij[i,j]) * S_ij_TM(f, A=Aarr[j,i])
+            S_ji_ij = jnp.exp(2j*jnp.pi*f*Lij[i,j]) * S_ij_TM(f, A=Aarr[j,i] ) + jnp.exp(-2j*jnp.pi*f*Lij[j,i]) * S_ij_TM(f, A=Aarr[i,j])
         
             return S_ij_ij, S_ji_ji, S_ij_ji, S_ji_ij
         
-        ''' Idk whether I'll ejnplicitly note this down, probably should later for better numerical accuracy/stability but oh well
+        ''' Idk whether I'll explicitly note this down, probably should later for better numerical accuracy/stability but oh well
         
         if noise_equal:
             S_XX =  16*jnp.sin(2*jnp.pi*f_arr*Larr[0,1])**2 * ( S_ij_OMS(f_arr, P = Parr[0,1] ) + 3*S_ij_TM(f_arr, A=Aarr[0,1]) )
@@ -434,7 +433,20 @@ class SpaceBased(Detector):
                 raise NotImplementedError
 
 LISA_XYZ_equal = SpaceBased(
-        
+        'LISA_XYZ_equal',
+        orbit = 'equal',
+        channel = 'XYZ',
+        tdi_gen = '1st generation',
+        use_gpu = True,
+        order = 25,
 )
             
+LISA_AET_equal = SpaceBased(
+        'LISA_AET_equal',
+        orbit = 'equal',
+        channel = 'AET',
+        tdi_gen = '1st generation',
+        use_gpu = True,
+        order = 25,
+)
 
