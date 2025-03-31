@@ -236,7 +236,6 @@ class SpaceBased(Detector):
             **kwargs)
         
         response = jnp.fft.rfft(chans) # add window to this to avoid Gibbs phenomena
-        freqs    = jnp.fft.rfftfreq(len(chans[0]), d = dt) # easiest way to get the correct frequencies
         
         if self.orbit == 'equal':
             orbitclass = self.get_orbit()
@@ -247,7 +246,8 @@ class SpaceBased(Detector):
             raise NotImplementedError
             
         
-        if kwargs['with_freqs'] ==True:
+        if kwargs.get('with_freqs', False) ==True:
+            freqs    = jnp.fft.rfftfreq(len(chans[0]), d = dt) # easiest way to get the correct frequencies
             return jnp.array(response), freqs
         
         return jnp.array(response)
@@ -257,7 +257,7 @@ class SpaceBased(Detector):
     def inject_signal(
         self,
         key: PRNGKeyArray,
-        freqs: Float[Array, " n_sample"],
+        #freqs: Float[Array, " n_sample"],
         waveform: Waveform, # waveform class of the source
         params: dict, # contains important noise parameters Aij, Pij, Lij
         
