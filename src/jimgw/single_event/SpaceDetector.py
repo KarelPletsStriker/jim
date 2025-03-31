@@ -16,7 +16,6 @@ Notes:  ---------- CUMULATIVE VERSION-----------------
 # LISA RELEVANT PACKAGES
 
 import numpy as np
-import matplotlib.pyplot as plt
 import h5py
 from fastlisaresponse import pyResponseTDI, ResponseWrapper
 from astropy import units as un
@@ -29,11 +28,13 @@ equal.configure(linear_interp_setup=True)
 import time
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, PRNGKeyArray, Float, jaxtyped
+
 
 from jimgw.jim import Jim
 from jimgw.single_event.detector import Detector
 from jimgw.single_event.wave import Polarization
-
+from jimgw.single_event.waveform import Waveform
 
 class SpaceBased(Detector):
     polarization_mode: list[Polarization]
@@ -60,6 +61,10 @@ class SpaceBased(Detector):
 
     def __init__(self, name: str, **kwargs) -> None: # To be changed into stuff you need for FD analysis
         self.name = name
+        
+        modes = kwargs.get("mode", "pc")
+        
+
 
         '''
         I think these are useless parameters for LISA?
@@ -71,7 +76,6 @@ class SpaceBased(Detector):
         self.yarm_azimuth = kwargs.get("yarm_azimuth", 0)
         self.xarm_tilt = kwargs.get("xarm_tilt", 0)
         self.yarm_tilt = kwargs.get("yarm_tilt", 0)
-        modes = kwargs.get("mode", "pc")
         '''
 
         self.polarization_mode = [Polarization(m) for m in modes]
@@ -201,7 +205,7 @@ class SpaceBased(Detector):
         dt: Float, # time resolution
         t0: Float, # start time, i.e. how much time of the generated waveform will be scrapped
         waveform: Waveform, # GW class
-        wave_parameters: list, # waveform specific parameters
+        wave_parameters: list[Float], # waveform specific parameters
         **kwargs
     ) -> Float[Array, " 3 n_sample"]:
         """
@@ -246,7 +250,7 @@ class SpaceBased(Detector):
             raise NotImplementedError
             
         
-        if kwargs.get('with_freqs', False) ==True:
+        if kwargs.get('with_freqs', False) == True:
             freqs    = jnp.fft.rfftfreq(len(chans[0]), d = dt) # easiest way to get the correct frequencies
             return jnp.array(response), freqs
         
@@ -258,7 +262,7 @@ class SpaceBased(Detector):
         self,
         key: PRNGKeyArray,
         #freqs: Float[Array, " n_sample"],
-        waveform: Waveform, # waveform class of the source
+        waveform: Waveform, # waveform class of the source 
         params: dict, # contains important noise parameters Aij, Pij, Lij
         
     ) -> None:
@@ -283,7 +287,7 @@ class SpaceBased(Detector):
     
             return bigPSD
 
-        freqs, signals     = fd_response(params['T'], params['dt'], params['t0'], waveform , with_freqs = True)
+        freqs, signals     = fd_response(params['T'], params['dt'], params['t0'], waveform, params['wave_parameters'] , with_freqs = True)
         
         # symmetric noise curves
         
@@ -406,9 +410,9 @@ class SpaceBased(Detector):
             XXYYZZ.append(term1+term2)
             XYYZZX.append(csdterm)
                 
-        if self.channel = 'XYZ':
+        if self.channel == 'XYZ':
                 return XXYYZZ, XYYZZX
-        elif self.channel = 'AET':
+        elif self.channel == 'AET':
                 '''
                 This transforms the XYZ base into the AET base
                 '''
@@ -425,7 +429,7 @@ class SpaceBased(Detector):
                 AAEETT = [AA,EE,TT]
                 AEETTA = [AE,ET,TA]
                 
-            return AAEETT, AEETTA
+                return AAEETT, AEETTA
             
         else:
                 raise NotImplementedError

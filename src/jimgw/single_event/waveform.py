@@ -200,7 +200,7 @@ class RippleIMRPhenomD_NRTidalv2(Waveform):
 
 class GBWave(Waveform): # Galactic Binary GW
     def __init__(self):
-
+        self.use_gpu = True 
     def __call__(self, A, f, fdot, iota, phi0, psi, T=1.0, dt=10.0):
 
         YRSID_SI = 31558149.763545603
