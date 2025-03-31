@@ -22,11 +22,9 @@ from fastlisaresponse import pyResponseTDI, ResponseWrapper
 from astropy import units as un
 
 from lisatools.detector import EqualArmlengthOrbits, ESAOrbits
-YRSID_SI = 31558149.763545603
 
 equal = EqualArmlengthOrbits()
 equal.configure(linear_interp_setup=True)
-
 
 import time
 import jax
@@ -156,7 +154,7 @@ class SpaceBased(Detector):
         
     def td_response(
         self,
-        waveform, # GW class
+        waveform: Waveform, # GW class
         params: dict[Float], # Simulation Parameters: 'T' (total duration), 't0' (start time, mostly to scrap shitty data), 'dt' (time resolution)
         # 'index_lambda' (), 'index_beta' ()
         wave_parameters: list[Float], # waveform specific parameters
@@ -202,7 +200,7 @@ class SpaceBased(Detector):
         T: Float, # total duration
         dt: Float, # time resolution
         t0: Float, # start time, i.e. how much time of the generated waveform will be scrapped
-        waveform, # GW class
+        waveform: Waveform, # GW class
         wave_parameters: list, # waveform specific parameters
         **kwargs
     ) -> Float[Array, " 3 n_sample"]:
@@ -260,8 +258,8 @@ class SpaceBased(Detector):
         self,
         key: PRNGKeyArray,
         freqs: Float[Array, " n_sample"],
-        waveform, # waveform class of the source
-        params: dict, # contains important noise parameters Pij 
+        waveform: Waveform, # waveform class of the source
+        params: dict, # contains important noise parameters Aij, Pij, Lij
         
     ) -> None:
         
@@ -285,7 +283,7 @@ class SpaceBased(Detector):
     
             return bigPSD
 
-        freqs, signals     = fd_response(params['T'], params['dt'], params['t0']  , {'with_freqs':True})
+        freqs, signals     = fd_response(params['T'], params['dt'], params['t0'], waveform , with_freqs = True)
         
         # symmetric noise curves
         
