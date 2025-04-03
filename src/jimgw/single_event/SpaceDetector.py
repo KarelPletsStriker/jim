@@ -281,7 +281,7 @@ class SpaceBased(Detector):
     
             return bigPSD
 
-        freqs, signals     = fd_response(params['T'], params['dt'], params['t0'], waveform, params['wave_parameters'] , with_freqs = True)
+        freqs, signals     = self.fd_response(waveform, params['detector_params'], params['wave_parameters'] , with_freqs = True)
         
         # symmetric noise curves
         
