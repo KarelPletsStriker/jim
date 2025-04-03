@@ -154,8 +154,7 @@ class SpaceBased(Detector):
         """
         raise NotImplementedError
         
-        
-        def td_response(
+    def td_response(
         self,
         waveform: Waveform, # GW class
         detector_parameters : dict[Float], # Simulation Parameters: 'T' (total duration), 't0' (start time, mostly to scrap shitty data), 'dt' (time resolution)
