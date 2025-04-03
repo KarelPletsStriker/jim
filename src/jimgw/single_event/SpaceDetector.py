@@ -92,14 +92,13 @@ class SpaceBased(Detector):
         self.order = kwargs.get('order',25) # order of lagrangian interpolation, fastlisaresponse parameter
         
     
-    @staticmethod
     def get_orbit(self):
         if self.orbit == "equal":
-            orbit = EqualArmlengthOrbits
+            orbit = EqualArmlengthOrbits(use_gpu = self.use_gpu)
             orbit.configure(linear_interp_setup=True)
             return orbit
         elif self.orbit == "ESA":
-            orbit = ESAOrbits
+            orbit = ESAOrbits(use_gpu = self.use_gpu)
             orbit.configure(linear_interp_setup=True)
             return orbit
         else:
@@ -156,10 +155,10 @@ class SpaceBased(Detector):
         raise NotImplementedError
         
         
-    def td_response(
+        def td_response(
         self,
         waveform: Waveform, # GW class
-        params: dict[Float], # Simulation Parameters: 'T' (total duration), 't0' (start time, mostly to scrap shitty data), 'dt' (time resolution)
+        detector_parameters : dict[Float], # Simulation Parameters: 'T' (total duration), 't0' (start time, mostly to scrap shitty data), 'dt' (time resolution)
         # 'index_lambda' (), 'index_beta' ()
         wave_parameters: list[Float], # waveform specific parameters
         **kwargs
@@ -180,11 +179,11 @@ class SpaceBased(Detector):
 
         wrapper = ResponseWrapper(
             waveform,
-            params['T'],
-            params['dt'],
-            params['index_lambda'],
-            params['index_beta'],
-            t0=params['t0'],
+            detector_parameters['T'],
+            detector_parameters['dt'],
+            detector_parameters['index_lambda'],
+            detector_parameters['index_beta'],
+            t0=detector_parameters['t0'],
             flip_hx=False,  # set to True if waveform is h+ - ihx
             use_gpu=self.use_gpu,
             remove_sky_coords=True,  # True if the waveform generator does not take sky coordinates
@@ -193,7 +192,7 @@ class SpaceBased(Detector):
             orbits=self.get_orbit(),
             **tdi_kwargs,
         )
-    
+        
         chans = wrapper(*wave_parameters)
         
         return jnp.array(chans) #np.array((chan1, chan2, chan3)) # i dont know how you would generalise this to all possible sources
@@ -201,10 +200,8 @@ class SpaceBased(Detector):
 
     def fd_response(
         self,
-        T: Float, # total duration
-        dt: Float, # time resolution
-        t0: Float, # start time, i.e. how much time of the generated waveform will be scrapped
         waveform: Waveform, # GW class
+        detector_parameters: dict[Float],
         wave_parameters: list[Float], # waveform specific parameters
         **kwargs
     ) -> Float[Array, " 3 n_sample"]:
@@ -232,10 +229,8 @@ class SpaceBased(Detector):
         
         
         chans = self.td_response(
-            T, # total duration
-            dt, # time resolution
-            t0, # start time, i.e. how much time of the generated waveform will be scrapped
             waveform, # GW class
+            detector_parameters,
             wave_parameters, # waveform specific parameters
             **kwargs)
         
