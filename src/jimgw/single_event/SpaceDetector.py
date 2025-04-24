@@ -94,12 +94,16 @@ class SpaceBased(Detector):
     
     def get_orbit(self):
         if self.orbit == "equal":
-            orbit = EqualArmlengthOrbits(use_gpu = self.use_gpu)
-            orbit.configure(linear_interp_setup=True)
+            #orbit = EqualArmlengthOrbits(use_gpu = self.use_gpu)
+            #orbit.configure(linear_interp_setup=True)
+
+            orbit = '/orbits/equalarmlength-trailing-fit.h5'
             return orbit
         elif self.orbit == "ESA":
-            orbit = ESAOrbits(use_gpu = self.use_gpu)
-            orbit.configure(linear_interp_setup=True)
+            #orbit = ESAOrbits(use_gpu = self.use_gpu)
+            #orbit.configure(linear_interp_setup=True)
+
+            orbit = '/orbits/esa-trailing-orbits.h5'
             return orbit
         else:
             raise NotImplementedError
@@ -174,7 +178,10 @@ class SpaceBased(Detector):
         # XYZ Waveform
 
         tdi_kwargs = dict(
-            order=self.order, tdi=self.tdi_gen, tdi_chan=self.channel)
+            order=self.order, 
+            tdi=self.tdi_gen,
+            tdi_chan=self.channel,
+            orbit_kwargs = dict(orbit_file=self.get_orbit()))
 
         wrapper = ResponseWrapper(
             waveform,
@@ -188,7 +195,7 @@ class SpaceBased(Detector):
             remove_sky_coords=True,  # True if the waveform generator does not take sky coordinates
             is_ecliptic_latitude=True,  # False if using polar angle (theta)
             remove_garbage=True,  # removes the beginning of the signal that has bad information
-            orbits=self.get_orbit(),
+            #orbits=self.get_orbit(),
             **tdi_kwargs,
         )
         
