@@ -199,16 +199,17 @@ class RippleIMRPhenomD_NRTidalv2(Waveform):
 #######################################################
 
 class GBWave(Waveform): # Galactic Binary GW
-    def __init__(self):
+    def __init__(self, **kwargs):
+        use_gpu = kwargs.get('use_gpu', True)
 
     def __call__(self, A, f, fdot, iota, phi0, psi, T=1.0, dt=10.0):
 
         YRSID_SI = 31558149.763545603
         # get the t array
-        t = self.jnp.arange(0.0, T * YRSID_SI, dt)
-        cos2psi = self.jnp.cos(2.0 * psi)
-        sin2psi = self.jnp.sin(2.0 * psi)
-        cosiota = self.jnp.cos(iota)
+        t = jnp.arange(0.0, T * YRSID_SI, dt)
+        cos2psi = jnp.cos(2.0 * psi)
+        sin2psi = jnp.sin(2.0 * psi)
+        cosiota = jnp.cos(iota)
 
         fddot = 11.0 / 3.0 * fdot ** 2 / f
 
@@ -218,8 +219,8 @@ class GBWave(Waveform): # Galactic Binary GW
             - phi0
         )
 
-        hSp = -self.jnp.cos(phase) * A * (1.0 + cosiota * cosiota)
-        hSc = -self.jnp.sin(phase) * 2.0 * A * cosiota
+        hSp = -jnp.cos(phase) * A * (1.0 + cosiota * cosiota)
+        hSc = -jnp.sin(phase) * 2.0 * A * cosiota
 
         hp = hSp * cos2psi - hSc * sin2psi
         hc = hSp * sin2psi + hSc * cos2psi
