@@ -126,8 +126,7 @@ class TransientLikelihoodFD(SingleEventLiklihood):
                     detector.fd_response(frequencies, waveform_sky, params) * align_time
                 )
                 match_filter_SNR = (
-                    4
-                 \   * jnp.sum(
+                    4* jnp.sum(
                         (jnp.conj(waveform_dec) * detector.data) / detector.psd * df
                     ).real
                 )
