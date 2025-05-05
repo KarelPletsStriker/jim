@@ -68,25 +68,29 @@ class TransientLikelihoodFD(SingleEventLiklihood):
         return [detector.name for detector in self.detectors]
 
     def evaluate(self, params: dict[str, Float], data: dict) -> Float:
-        # TODO: Test whether we need to pass data in or with class changes is fine.
+        # TODO: Test whether we need to pass data in or with class changes is fine. --> done, I think
+        # Need to check whether it's useful to add networks of both space-based and ground-based detectors. When or how the fuck with this even work tbh
         """
         Evaluate the likelihood for a given set of parameters.
         """
         log_likelihood = 0
+        
+        nospacedecs = jnp.array([
+            not isinstance(detector, SpaceBased) for detector in self.detectors
+        ])
+        
+        self.ground_detectors = jnp.array(self.detectors)[ nospacedecs]
+        self.space_detectors = jnp.array(self.detectors)[~ nospacedecs]
+        
         frequencies = self.frequencies
         df = frequencies[1] - frequencies[0]
-        params["gmst"] = self.gmst
-        waveform_sky = self.waveform(frequencies, params)
-        align_time = jnp.exp(
-            -1j * 2 * jnp.pi * frequencies * (self.epoch + params["t_c"])
-        )
-        for detector in self.detectors:
-            if isinstance(detector, SpaceBased):
-                waveform_dec = detector.fd_response(frequencies, waveform_sky, params)
+        
+        for detector in self.space_detectors:
+            waveform_dec = detector.fd_response( self.waveform, params)
                 
-                psd_inv = jnp.linalg.inv(detector.psd)
+            psd_inv = jnp.linalg.inv(detector.psd)
                 
-                match_filter_SNR = (
+            match_filter_SNR = (
                     4
                     * jnp.einsum(
                         'ij,ijk,ik->',
@@ -94,8 +98,9 @@ class TransientLikelihoodFD(SingleEventLiklihood):
                         psd_inv,
                         detector.data.conj()
                     ).real * df
-                )
-                optimal_SNR = (
+            )
+            
+            optimal_SNR = (
                     4
                     * jnp.einsum(
                         'ij,ijk,ik->',
@@ -103,17 +108,26 @@ class TransientLikelihoodFD(SingleEventLiklihood):
                         psd_inv,
                         waveform_dec.conj()
                     ).real * df
-                )
-
-                
+            )
+            
+            log_likelihood += match_filter_SNR - optimal_SNR / 2
+            
+        
+        params["gmst"] = self.gmst
+        waveform_sky = self.waveform(frequencies, params)
+        align_time = jnp.exp(
+            -1j * 2 * jnp.pi * frequencies * (self.epoch + params["t_c"])
+        )
+        
+        for detector in self.ground_detectors:
             # check if correlation between detectors are expected
-            elif not isinstance(detector, TriangularGroundBased3G):
+            if not isinstance(detector, TriangularGroundBased3G):
                 waveform_dec = (
                     detector.fd_response(frequencies, waveform_sky, params) * align_time
                 )
                 match_filter_SNR = (
                     4
-                    * jnp.sum(
+                 \   * jnp.sum(
                         (jnp.conj(waveform_dec) * detector.data) / detector.psd * df
                     ).real
                 )
