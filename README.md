@@ -26,7 +26,7 @@ In order to install this forked version of JIM with the `TriangularGroundBased3G
 
 ```
 pip install git+[my own link will have to go here]
-pip install flowMC==0.2.4 evosax==0.1.5
+pip install flowMC==0.3.4 evosax==0.1.5
 ```
 
 If you would like to take advantage of CUDA, you will additionally need to install a specific version of JAX by doing
