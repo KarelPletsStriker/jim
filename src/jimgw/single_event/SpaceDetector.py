@@ -30,6 +30,9 @@ import time
 import jax
 import jax.numpy as jnp
 
+from jaxtyping import Array, PRNGKeyArray, Float, jaxtyped
+from beartype import beartype as typechecker
+
 from jimgw.jim import Jim
 from jimgw.single_event.detector import Detector
 from jimgw.single_event.wave import Polarization
