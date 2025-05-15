@@ -348,7 +348,7 @@ class SpaceBased(Detector):
         print(f"The correlated match filter SNR is {match_filter_SNR}")
         
         
-    @jaxtyped
+    @jaxtyped(typechecker=typechecker)
     def load_psds(self,f_arr, Parr, Aarr, Larr):
         '''
         Loads in the Covariance matrix for a given set of noise parameters 
