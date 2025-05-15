@@ -6,6 +6,8 @@ import numpy as np
 import requests
 from gwpy.timeseries import TimeSeries
 from jaxtyping import Array, PRNGKeyArray, Float, jaxtyped
+from beartype import beartype as typechecker
+
 from scipy.interpolate import interp1d
 from scipy.signal.windows import tukey
 
@@ -407,7 +409,7 @@ class GroundBased2G(Detector):
         signal = self.fd_response(freqs, h_sky, params) * align_time
         self.data = signal + noise_real + 1j * noise_imag
 
-    @jaxtyped
+    @jaxtyped(typechecker=typechecker)
     def load_psd(
         self, freqs: Float[Array, " n_sample"], psd_file: str = ""
     ) -> Float[Array, " n_sample"]:
@@ -813,7 +815,7 @@ class TriangularGroundBased3G(Detector):
         print(f"The uncorrelated Optimal SNR is {optimal_SNR}")
         print(f"The uncorrelated match filter SNR is {match_filter_SNR}")
 
-    @jaxtyped
+    @jaxtyped(typechecker=typechecker)
     def load_psd(
         self, freqs: Float[Array, " n_sample"], psd_file: str = ""
     ) -> Float[Array, " n_sample"]:
@@ -830,7 +832,7 @@ class TriangularGroundBased3G(Detector):
         psd = jnp.array(psd)
         return psd
 
-    @jaxtyped
+    @jaxtyped(typechecker=typechecker)
     def load_csd(
         self, freqs: Float[Array, " n_sample"], csd_file: str = ""
     ) -> Float[Array, " n_sample"]:
