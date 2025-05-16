@@ -17,10 +17,10 @@ Notes:  ---------- CUMULATIVE VERSION-----------------
 
 import numpy as np
 import h5py
-from fastlisaresponse import pyResponseTDI, ResponseWrapper
 from astropy import units as un
 
 from lisatools.detector import EqualArmlengthOrbits, ESAOrbits
+from jim.jaxlisaresponse.response import pyResponseTDI, ResponseWrapper
 
 equal = EqualArmlengthOrbits()
 equal.configure(linear_interp_setup=True)
@@ -241,7 +241,7 @@ class SpaceBased(Detector):
         
         chans = wrapper(*wave_parameters)
         
-        return jnp.array([chan.get() for chan in chans]) #np.array((chan1, chan2, chan3)) # i dont know how you would generalise this to all possible sources
+        return jnp.array(chans) #np.array((chan1, chan2, chan3)) # i dont know how you would generalise this to all possible sources
 
 
     def fd_response(
@@ -299,8 +299,8 @@ class SpaceBased(Detector):
             L = orbitclass.get_light_travel_times(0.0, 12)
             
             mask_array = jnp.array(maskbool(freqs, L, resolution = 0))
-            response   = [chan[mask_array] for chan in response]
-            freqs      = freqs[mask_array]
+            response   = [jnp.where(mask_array,chan, jnp.zeros(len(chan))) for chan in response]
+            #freqs      = jnp.where(mask_array,freqs)
             
         elif self.orbit == 'ESA':
             raise NotImplementedError
@@ -391,12 +391,12 @@ class SpaceBased(Detector):
         
         inv_cov          = jnp.linalg.inv(cov) #inv_3x3_matrix(cov_sym)
         print(signals.shape, inv_cov.shape)
-        optimal_SNR_2    = jnp.einsum('ji,ijk,ki->',
+        optimal_SNR_2    = jnp.einsum('ji,ijk,ki->i',
                               signals,
                               inv_cov,
                               signals.conj() ).real
     
-        optimal_SNR      = jnp.sqrt(optimal_SNR_2)
+        optimal_SNR      = jnp.sqrt(jnp.sum(optimal_SNR_2))
         
         match_filter_SNR = jnp.einsum(
             'ji,ijk,ki->i',
