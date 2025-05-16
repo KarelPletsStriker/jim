@@ -693,6 +693,7 @@ class pyResponseTDI(object):
              buffer_integer, sampling_frequency, projections_start_ind'''
 
         self.y_gw_flat = y_gw
+        print(y_gw.shape)
         self.y_gw_length = self.num_pts
 
     @property
@@ -730,8 +731,9 @@ class pyResponseTDI(object):
 
         # y_gw entered directly
         if y_gw is not None:
+            print('what')
             assert y_gw.shape == (len(self.link_space_craft_0_in), self.num_pts)
-            self.y_gw_flat = y_gw.flatten().copy()
+            self.y_gw_flat = y_gw.copy()#.flatten().copy()
             self.y_gw_length = self.num_pts
 
         elif self.y_gw_flat is None:
@@ -739,11 +741,11 @@ class pyResponseTDI(object):
                 "Need to either enter projection array or have this code determine projections."
             )
 
-        for j in range(3):
+        for j in range(self.num_channels):
             for link_ind, sign in self.channels_no_delays[j]:
                 self.delayed_links_flat.at[j].set(self.delayed_links_flat[j] + sign * self.y_gw[link_ind])
 
-        self.delayed_links_flat = self.delayed_links_flat.flatten()
+        self.delayed_links_flat = self.delayed_links_flat#.flatten()
 
         print('converting to tdi variables')
         
