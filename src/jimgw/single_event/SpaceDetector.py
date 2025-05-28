@@ -20,7 +20,7 @@ import h5py
 from astropy import units as un
 
 from lisatools.detector import EqualArmlengthOrbits, ESAOrbits
-from jim.jaxlisaresponse.response import pyResponseTDI, ResponseWrapper
+from jimgw.jaxlisaresponse.response import pyResponseTDI, ResponseWrapper
 
 equal = EqualArmlengthOrbits()
 equal.configure(linear_interp_setup=True)

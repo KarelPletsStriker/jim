@@ -25,8 +25,8 @@ except (ImportError, ModuleNotFoundError) as e:
 #from pyresponse_cpu import get_response_wrap as get_response_wrap_cpu
 #from pyresponse_cpu import get_tdi_delays_wrap as get_tdi_delays_wrap_cpu
 
-from fastlisaresponse.pyresponse_with_jax import response as get_response_wrap_cpu
-from fastlisaresponse.pyresponse_with_jax import TDI_delay as get_tdi_delays_wrap_cpu
+from jimgw.jaxlisaresponse.pyresponse_with_jax import response as get_response_wrap_cpu
+from jimgw.jaxlisaresponse.pyresponse_with_jax import TDI_delay as get_tdi_delays_wrap_cpu
 
 import time
 import h5py
