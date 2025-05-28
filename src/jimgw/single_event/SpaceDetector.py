@@ -362,7 +362,7 @@ class SpaceBased(Detector):
         
 
     
-    ) #-> Float:
+    
     
     def inject_signal(
         self,
