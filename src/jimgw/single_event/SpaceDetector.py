@@ -414,6 +414,8 @@ class SpaceBased(Detector):
         
         self.psd = psd
         
+        
+        cov = psd / 4 / (self.frequencies[1] - self.frequencies[0])
         print('Sampling the noise...')
         
         mean = jnp.zeros(shape = self.frequencies.shape + (6,))
@@ -456,7 +458,6 @@ class SpaceBased(Detector):
         print(f"The correlated match filter SNR is {match_filter_SNR}")
         
         
-    @jaxtyped
     def load_psds(self,f_arr, Parr, Aarr, Lij):
         '''
         Loads in the Covariance matrix for a given set of noise parameters 
