@@ -79,11 +79,8 @@ class TransientLikelihoodFD(SingleEventLiklihood):
             not isinstance(detector, SpaceBased) for detector in self.detectors
         ])
         
-        self.ground_detectors = jnp.array(self.detectors)[ nospacedecs]
-        self.space_detectors = jnp.array(self.detectors)[~ nospacedecs]
-        
-        frequencies = self.frequencies
-        df = frequencies[1] - frequencies[0]
+        self.ground_detectors = np.array(self.detectors)[ nospacedecs]
+        self.space_detectors = np.array(self.detectors)[~ nospacedecs]
         
         for detector in self.space_detectors:
             waveform_dec = detector.fd_response( self.waveform, params)
@@ -113,13 +110,18 @@ class TransientLikelihoodFD(SingleEventLiklihood):
             log_likelihood += match_filter_SNR - optimal_SNR / 2
             
         
-        params["gmst"] = self.gmst
-        waveform_sky = self.waveform(frequencies, params)
-        align_time = jnp.exp(
-            -1j * 2 * jnp.pi * frequencies * (self.epoch + params["t_c"])
-        )
         
         for detector in self.ground_detectors:
+
+            params["gmst"] = self.gmst
+            waveform_sky = self.waveform(frequencies, params)
+            align_time = jnp.exp(
+                -1j * 2 * jnp.pi * frequencies * (self.epoch + params["t_c"])
+            )
+        
+            frequencies = detector.frequencies
+            df = frequencies[1] - frequencies[0]
+        
             # check if correlation between detectors are expected
             if not isinstance(detector, TriangularGroundBased3G):
                 waveform_dec = (

@@ -130,6 +130,12 @@ class SpaceBased(Detector):
             'index_beta' : kwargs.get('index_beta',7),
             'index_lambda' : kwargs.get('index_lambda',6)
         }
+
+        self.SNR_method = kwargs.get('SNR_method', 'masking') # other options are regularization, smoothing (to be added) and None
+
+        if self.SNR_method == 'masking':
+            self.masking_resolution = kwargs.get('masking_resolution', 1e-2)
+        
     
     def get_orbit(self):
         
@@ -255,22 +261,6 @@ class SpaceBased(Detector):
         note: you should probably keep the window in mind (to be implemented)
         """
         
-        def maskbool(f,armlength, resolution = 1e-2):
-            '''
-            Masks away all the bad frequencies, i.e. all f \in \Bigcup_{n\in \mathb{N}} [ (-.01+n)/2L , (.01+n)/2L ] 
-            NB: assumes an approximate constant armlength!
-            Input:
-            frequency
-
-            Returns:
-            Boolean array with all the excluded frequencies
-            '''
-            
-            f = jnp.asarray(f)
-            print(armlength)
-            modes = ((f*armlength+1/2) % (1)) - 1/(2)
-            
-            return (jnp.abs(modes)) > resolution
         
         
         wave_parameters = [
@@ -294,6 +284,7 @@ class SpaceBased(Detector):
         response = jnp.fft.rfft(chans) # add window to this to avoid Gibbs phenomena
         freqs    = jnp.fft.rfftfreq(len(chans[0]), d = self.detector_parameters['dt'])
         
+        '''
         if self.orbit == 'equal':
             orbitclass = equal
             L = orbitclass.get_light_travel_times(0.0, 12)
@@ -303,7 +294,7 @@ class SpaceBased(Detector):
             #freqs      = jnp.where(mask_array,freqs)
             
         elif self.orbit == 'ESA':
-            raise NotImplementedError
+            raise NotImplementedError'''
             
         
         if kwargs.get('with_freqs', False) == True:
@@ -313,6 +304,65 @@ class SpaceBased(Detector):
         return jnp.array(response)
 
     
+
+    def calc_SNR(
+        self,
+        x,
+        y,
+        ):
+        '''
+        This function calculates the SNR between 2 arrays for a space detector: (array)
+
+        parameters:
+        x - left vector, has shape (num_channels, num_freqs)
+        y - right vector, has shape (num_channels, num_freqs)
+        '''
+        cov = self.psd / (4 * (self.frequencies[1] - self.frequencies[0]))
+        inv_cov = jnp.linalg.inv(cov)
+
+
+        def maskbool(f,armlength, resolution = 1e-2):
+            '''
+            Masks away all the bad frequencies, i.e. all f \in \Bigcup_{n\in \mathb{N}} [ (-.01+n)/2L , (.01+n)/2L ] 
+            NB: assumes an approximate constant armlength!
+            Input:
+            frequency
+
+            Returns:
+            Boolean array with all the excluded frequencies set to False, rest is True
+            '''
+            
+            f = jnp.asarray(f)
+            #print(armlength)
+            modes = ((f*armlength+1/2) % (1)) - 1/(2)
+            
+            return (jnp.abs(modes)) > resolution
+        
+        if self.SNR_method == 'masking':
+
+            mask_array = maskbool(self.frequencies, self.armlength, resolution = self.masking_resolution)
+
+            res = jnp.einsum('ji,ijk,ki->i', x, inv_cov, y.conj()).real
+            return jnp.sum(res, where = maskarray)
+
+        elif self.SNR_method == 'smoothing':
+            raise NotImplementedError
+
+        elif (self.SNR_method == None) or (self.SNR_method == 'regularization'):
+            return jnp.einsum('ji,ijk,ki->', x, inv_cov, y.conj()).real
+
+        else:
+            raise NotImplementedError
+
+
+
+
+            
+
+        
+
+    
+    ) #-> Float:
     
     def inject_signal(
         self,
@@ -362,9 +412,6 @@ class SpaceBased(Detector):
         
         psd = jnp.einsum('ijk->kij', psd)
         
-        cov = psd / (4 * (self.frequencies[1] - self.frequencies[0]))
-        
-        
         self.psd = psd
         
         print('Sampling the noise...')
@@ -374,7 +421,7 @@ class SpaceBased(Detector):
         print('noise real nans:',jnp.sum(jnp.isnan(separated_noise.T[:3])))
         print('noise imag nans:',jnp.sum(jnp.isnan(separated_noise.T[3:])))
         noises = separated_noise.T[:3] + 1j*separated_noise.T[3:]   # connecting real part of the noise and the imaginary part into a complex array
-        
+        noises = jnp.where(jnp.isnan(noises), 0, noises)
         print('done!')
         
         print('Adding noise to the signals...')
@@ -390,23 +437,18 @@ class SpaceBased(Detector):
         print('Calculating the SNRs')
         
         inv_cov          = jnp.linalg.inv(cov) #inv_3x3_matrix(cov_sym)
-        print(signals.shape, inv_cov.shape)
-        optimal_SNR_2    = jnp.einsum('ji,ijk,ki->i',
+        #print(signals.shape, inv_cov.shape)
+        optimal_SNR_2    = self.calc_SNR(
                               signals,
-                              inv_cov,
-                              signals.conj() ).real
+                              signals,
+                              )
     
-        optimal_SNR      = jnp.sqrt(jnp.sum(optimal_SNR_2))
+        optimal_SNR      = jnp.sqrt((optimal_SNR_2))
         
-        match_filter_SNR = jnp.einsum(
-            'ji,ijk,ki->i',
-            self.data,
-            inv_cov,
-            signals.conj(),
-        ).real
+        match_filter_SNR = self.calc_SNR(self.data, signals)
         
         
-        match_filter_SNR =  jnp.sum( match_filter_SNR, where = ( ~jnp.isnan(self.data[0]) ) ) /optimal_SNR
+        match_filter_SNR =  match_filter_SNR / optimal_SNR
         
         
         print(f"For {self.name}'s channels ({self.channel}):")
@@ -433,6 +475,13 @@ class SpaceBased(Detector):
         
         XXYYZZ = list()
         XYYZZX = list()
+
+        epsilon = 0
+        if self.SNR_method == 'masking':
+            self.armlength = Lij[0,1]
+        elif self.SNR_method == 'regularization':
+            epsilon += 1e-42
+
         
         
         def Partial_PSDs(f,i,j): # partial sums of PSD
@@ -458,6 +507,8 @@ class SpaceBased(Detector):
         '''
                 
         dimension = 3
+
+        
         for k in range(dimension): #XYZ column
 
             S12 = Partial_PSDs(f_arr,k,(k+1)%dimension)
@@ -475,7 +526,7 @@ class SpaceBased(Detector):
             
             csdterm = (1-jnp.conj(D13*D31))*(D23*D32-1)*(D12*S12[0] + jnp.conj(D21)*S12[1] + S12[2] + D21*jnp.conj(D12)*S12[3])
             
-            XXYYZZ.append(term1+term2)
+            XXYYZZ.append(term1+term2+epsilon)
             XYYZZX.append(csdterm)
                 
         if self.channel == 'XYZ':

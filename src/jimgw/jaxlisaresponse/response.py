@@ -1,8 +1,12 @@
 from multiprocessing.sharedctypes import Value
-#import numpy as np
 
-import jax.numpy as np
-xp = np
+import numpy as np
+import jax.numpy as jnp
+import jax
+
+jax.config.update("jax_enable_x64", True)
+
+xp = jnp
 gpu = False
 
 '''try:
@@ -43,16 +47,16 @@ def get_factorial(n):
 
 from math import factorial
 
-global_factorials = np.array([factorial(i) for i in range(40)], dtype = np.float64)
+global_factorials = jnp.array([factorial(i) for i in range(30)], dtype = jnp.float64)
 
 C_inv = 3.3356409519815204e-09
 
 
 def AET(X, Y, Z):
     return (
-        (Z - X) / np.sqrt(2.0),
-        (X - 2.0 * Y + Z) / np.sqrt(6.0),
-        (X + Y + Z) / np.sqrt(3.0),
+        (Z - X) / jnp.sqrt(2.0),
+        (X - 2.0 * Y + Z) / jnp.sqrt(6.0),
+        (X + Y + Z) / jnp.sqrt(3.0),
     )
 
 
@@ -65,7 +69,7 @@ def pointer_adjust(func):
                     targs.append(arg.data.mem.ptr)
                     continue
 
-            if isinstance(arg, np.ndarray):
+            if isinstance(arg, jnp.ndarray):
                 
                 # this is what copilot told me to do. they told me it was unsafe and only meant for use if you need it for CUDA code or so
                 device_buffer = arg.addressable_data(0)
@@ -137,7 +141,7 @@ class pyResponseTDI(object):
             during Lagrangian interpolation.
         buffer_integer (int): Self-determined buffer necesary for the given
             value for :code:`order`.
-        channels_no_delays (2D np.ndarray): Carrier of link index and sign information
+        channels_no_delays (2D jnp.ndarray): Carrier of link index and sign information
             for arms that do not get delayed during TDI computation.
         deps (double): The spacing between Epsilon values in the interpolant
             for the A quantity in Lagrangian interpolation. Hard coded to
@@ -207,11 +211,11 @@ class pyResponseTDI(object):
         self.use_gpu = use_gpu
         if use_gpu:
             self.xp = xp
-            self.response_gen = get_response_wrap_gpu
-            self.tdi_gen = get_tdi_delays_wrap_gpu
+            self.response_gen = get_response_wrap_cpu#gpu
+            self.tdi_gen = get_tdi_delays_wrap_cpu#gpu
 
         else:
-            self.xp = np
+            self.xp = jnp
             self.response_gen = get_response_wrap_cpu
             self.tdi_gen = get_tdi_delays_wrap_cpu
 
@@ -242,7 +246,7 @@ class pyResponseTDI(object):
     def _fill_A_E(self):
         """Set up A and E terms inside the Lagrangian interpolant"""
 
-        #factorials = np.asarray([float(get_factorial(n)) for n in range(40)])
+        #factorials = jnp.asarray([float(get_factorial(n)) for n in range(40)])
         
         factorials = global_factorials
 
@@ -250,14 +254,14 @@ class pyResponseTDI(object):
         self.num_A = 1001
         self.deps = 1.0 / (self.num_A - 1)
 
-        eps = np.arange(self.num_A) * self.deps
+        eps = jnp.arange(self.num_A) * self.deps
 
         h = self.half_order
 
         denominator = factorials[h - 1] * factorials[h]
 
         # prepare A
-        A_in = np.zeros_like(eps)
+        A_in = jnp.zeros_like(eps)
         for j, eps_i in enumerate(eps):
             A = 1.0
             for i in range(1, h):
@@ -269,15 +273,15 @@ class pyResponseTDI(object):
         self.A_in = self.xp.asarray(A_in)
 
         # prepare E
-        E_in = self.xp.zeros((self.half_order,))
-
-        for j in range(1, self.half_order):
+        def make_E_in(j):
             first_term = factorials[h - 1] / factorials[h - 1 - j]
             second_term = factorials[h] / factorials[h + j]
             value = first_term * second_term
             value = value * (-1.0) ** j
-            E_in = E_in.at[j - 1].set(value)
+            return (value)
 
+        E_in = jax.vmap(make_E_in)(jnp.arange(1, self.half_order+1))
+        
         self.E_in = self.xp.asarray(E_in)
 
     def _init_orbit_information(
@@ -296,26 +300,26 @@ class pyResponseTDI(object):
             link_space_craft_0 = np.zeros((self.nlinks,), dtype=int)
             link_space_craft_1 = np.zeros((self.nlinks,), dtype=int)
             
-            link_space_craft_0 = link_space_craft_0.at[0].set(1)
-            link_space_craft_1 = link_space_craft_1.at[0].set(0)
-            link_space_craft_0 = link_space_craft_0.at[1].set(0)
-            link_space_craft_1 = link_space_craft_1.at[1].set(1)
+            link_space_craft_0[0] = (1)
+            link_space_craft_1[0] = (0)
+            link_space_craft_0[1] = (0)
+            link_space_craft_1[1] = (1)
 
-            link_space_craft_0 = link_space_craft_0.at[2].set(2)
-            link_space_craft_1 = link_space_craft_1.at[2].set(0)
-            link_space_craft_0 = link_space_craft_0.at[3].set(0)
-            link_space_craft_1 = link_space_craft_1.at[3].set(2)
+            link_space_craft_0[2] = (2)
+            link_space_craft_1[2] = (0)
+            link_space_craft_0[3] = (0)
+            link_space_craft_1[3] = (2)
 
-            link_space_craft_0 = link_space_craft_0.at[4].set(2)
-            link_space_craft_1 = link_space_craft_1.at[4].set(1)
-            link_space_craft_0 = link_space_craft_0.at[5].set(1)
-            link_space_craft_1 = link_space_craft_1.at[5].set(2)
+            link_space_craft_0[4] = (2)
+            link_space_craft_1[4] = (1)
+            link_space_craft_0[5] = (1)
+            link_space_craft_1[5] = (2)
 
-            self.link_space_craft_0_in = self.xp.asarray(link_space_craft_0).astype(
-                self.xp.int32
+            self.link_space_craft_0_in = (link_space_craft_0).astype(
+                np.int32
             )
-            self.link_space_craft_1_in = self.xp.asarray(link_space_craft_1).astype(
-                self.xp.int32
+            self.link_space_craft_1_in = (link_space_craft_1).astype(
+                np.int32
             )
 
             # get info from the file
@@ -345,7 +349,7 @@ class pyResponseTDI(object):
                 y_val = out["sc_" + str(sc0)]["y"] - out["sc_" + str(sc1)]["y"]
                 z_val = out["sc_" + str(sc0)]["z"] - out["sc_" + str(sc1)]["z"]
 
-                norm = np.sqrt(x_val ** 2 + y_val ** 2 + z_val ** 2)
+                norm = jnp.sqrt(x_val ** 2 + y_val ** 2 + z_val ** 2)
 
                 L_in.append(out["l_" + str(sc0) + str(sc1)]["tt"])
 
@@ -367,24 +371,25 @@ class pyResponseTDI(object):
             for i in range(self.nlinks):
                 L_in[i] = CubicSpline(t_in, L_in[i])(t_new)
 
-            x_in_receiver = [None for _ in range(2 * len(x_in))]
-            x_in_emitter = [None for _ in range(2 * len(x_in))]
+            x_in_receiver = [None for _ in range(6)]
+            x_in_emitter = [None for _ in range(6)]
             for link_i in range(self.nlinks):
                 sc0 = self.link_space_craft_0_in[link_i].item()  # receiver
                 sc1 = self.link_space_craft_1_in[link_i].item()  # emitter
 
-                for j in range(3):
-                    x_in_receiver[link_i * 3 + j] = CubicSpline(
-                        t_in, x_in[sc0 * 3 + j]
-                    )(t_new)
-                    x_in_emitter[link_i * 3 + j] = CubicSpline(t_in, x_in[sc1 * 3 + j])(
+                
+                x_in_receiver[link_i ] = [ CubicSpline(
+                        t_in, x_in[sc0 * 3 + j ]
+                    )(t_new) for j in range(3) ]
+                
+                x_in_emitter[link_i] = [CubicSpline(t_in, x_in[sc1 * 3 + j])(
                         t_new - L_in[link_i]
-                    )
+                    ) for j in range(3) ]
 
         else:
             raise NotImplementedError
             # perform computations from LDC orbit class
-            t_new = np.arange(self.num_pts) * self.dt
+            t_new = jnp.arange(self.num_pts) * self.dt
             self.nlinks = orbit_module.number_of_arms
             self.link_space_craft_0_in = self.xp.zeros(self.nlinks, dtype=self.xp.int32)
             self.link_space_craft_1_in = self.xp.zeros(self.nlinks, dtype=self.xp.int32)
@@ -410,14 +415,16 @@ class pyResponseTDI(object):
                     x_in.append(temp[j])
 
         # get max buffer for projections
-        x_in = np.asarray(x_in)
-        L_in = np.asarray(L_in)
+        x_in = jnp.asarray(x_in)
+        L_in = jnp.asarray(L_in)
         
-        projection_buffer = int(np.max(x_in) * C_inv + np.max(np.abs(L_in))) + 4 * order
-        x_in_receiver = self.xp.asarray(np.concatenate(x_in_receiver))# 
-        x_in_emitter = self.xp.asarray(np.concatenate(x_in_emitter))# 
+        projection_buffer = int(jnp.max(x_in) * C_inv + jnp.max(jnp.abs(L_in))) + 4 * order
+        x_in_receiver = self.xp.asarray((x_in_receiver))
+        #print(x_in_receiver.shape)# 
+        x_in_emitter = self.xp.asarray((x_in_emitter))
+        #print(x_in_emitter.shape)# 
         L_in_for_TDI = L_in
-        L_in = self.xp.asarray(np.concatenate(L_in))
+        L_in = self.xp.asarray((L_in))
         num_orbit_inputs = len(t_new)
         t_data_cpu = t_new
         t_data = self.xp.asarray(t_new)
@@ -517,18 +524,19 @@ class pyResponseTDI(object):
             else:
                 num_delay_comps += 1
 
-        self.channels_no_delays = np.asarray(channels_no_delays)
+        self.channels_no_delays = jnp.asarray(channels_no_delays)
 
         self.num_tdi_combinations = len(tdi_combinations)
         self.num_tdi_delay_comps = num_delay_comps
+        self.num_channels = 3
 
-        #delays = np.zeros((3, self.num_tdi_delay_comps, self.num_pts))
+        delays = jnp.zeros((self.num_channels, self.num_tdi_delay_comps, self.num_pts))
 
-        #delays[:] = self.t_data_cpu
+        delays = delays.at[:].set(self.t_data_cpu)
         
-        delays = np.array([ [ [self.t_data_cpu] * self.num_tdi_delay_comps  ] * 3 ])
+        #delays = jnp.array([ [ [self.t_data_cpu] * self.num_tdi_delay_comps  ] * 3 ])
 
-        link_inds = np.zeros((3, self.num_tdi_delay_comps), dtype=np.int32)
+        link_inds = jnp.zeros((3, self.num_tdi_delay_comps), dtype=jnp.int32)
 
         signs = []
         # cyclic permuatations for X, Y, Z
@@ -543,16 +551,15 @@ class pyResponseTDI(object):
                 link = self._cyclic_permutation(tdi["link"], j)
                 link_inds = link_inds.at[j,i].set(link_dict[link])
 
-                temp_delay = 0.0
                 for link in tdi["links_for_delay"]:
                     link = self._cyclic_permutation(link, j)
                     link_index = link_dict[link]
 
                     # handles advancements
                     if "type" in tdi and tdi["type"] == "advance":
-                        delays = delays.at[j,i].set(delays[j][i] + self.L_in_for_TDI[link_index])
+                        delays = delays.at[j,i].add(self.L_in_for_TDI[link_index])
                     else:
-                        delays = delays.at[j,i].set(delays[j][i] - self.L_in_for_TDI[link_index])
+                        delays = delays.at[j,i].add(-self.L_in_for_TDI[link_index])
 
                 if j == 0:
                     signs.append(tdi["sign"])
@@ -564,18 +571,17 @@ class pyResponseTDI(object):
             t_arr = self.t_data
 
         # find the maximum delayed applied to the combinations
-        self.max_delay = np.max(np.abs(t_arr - delays[:]))
-
+        self.max_delay = jnp.max(jnp.abs(t_arr - delays[:]))
+        
         # get necessary buffer for TDI
         self.check_tdi_buffer = (
             int(self.max_delay * self.sampling_frequency) + 4 * self.order
         )
 
         # prepare final info needed for TDI
-        self.num_channels = 3
-        self.link_inds = self.xp.asarray(link_inds.flatten()).astype(self.xp.int32)
-        self.tdi_delays = self.xp.asarray(delays.flatten())
-        self.tdi_signs = self.xp.asarray(signs, dtype=np.int32)
+        self.link_inds = self.xp.asarray(link_inds).astype(self.xp.int32)
+        self.tdi_delays = self.xp.asarray(delays, dtype = self.xp.float64)#.flatten())
+        self.tdi_signs = self.xp.asarray(signs, dtype=jnp.int32)
 
     def _cyclic_permutation(self, link, permutation):
         """permute indexes by cyclic permutation"""
@@ -616,11 +622,11 @@ class pyResponseTDI(object):
         """
 
         # get break points
-        print('preparing the input variables for the single-link responses')
+        #print('preparing the input variables for the single-link responses')
         for key, item in self.orbits_store["projection"].items():
             setattr(self, key, item)
 
-        self.tdi_start_ind = np.floor_divide(t0, self.dt).astype(int)
+        self.tdi_start_ind = int(t0//self.dt)
         self.projections_start_ind = self.tdi_start_ind - 2 * self.check_tdi_buffer
 
         if self.projections_start_ind < self.projection_buffer:
@@ -629,18 +635,18 @@ class pyResponseTDI(object):
             )
 
         # determine sky vectors
-        k = np.zeros(3, dtype=np.float64)
-        u = np.zeros(3, dtype=np.float64)
-        v = np.zeros(3, dtype=np.float64)
+        k = jnp.zeros(3, dtype=jnp.float64)
+        u = jnp.zeros(3, dtype=jnp.float64)
+        v = jnp.zeros(3, dtype=jnp.float64)
 
         assert len(input_in) >= self.num_pts
         self.num_total_points = len(input_in)
 
-        cosbeta = np.cos(beta)
-        sinbeta = np.sin(beta)
+        cosbeta = jnp.cos(beta)
+        sinbeta = jnp.sin(beta)
 
-        coslam = np.cos(lam)
-        sinlam = np.sin(lam)
+        coslam = jnp.cos(lam)
+        sinlam = jnp.sin(lam)
 
         v = v.at[0].set( -sinbeta * coslam)
         v = v.at[1].set( -sinbeta * sinlam)
@@ -652,23 +658,52 @@ class pyResponseTDI(object):
         k = k.at[1].set( -cosbeta * sinlam)
         k = k.at[2].set( -sinbeta)
 
-        y_gw = self.xp.zeros((self.nlinks, self.num_pts,), dtype=self.xp.float64)
+        y_gw = self.xp.zeros((self.nlinks , self.num_pts,), dtype=self.xp.float64)
         k_in = self.xp.asarray(k)
         u_in = self.xp.asarray(u)
         v_in = self.xp.asarray(v)
 
         input_in = self.xp.asarray(input_in)
         
-        print('generating the single-link responses')
-
+        #print(input_in)
+        #print('generating the single-link responses')
+        #print('ARM LENGTHS:', self.L_in.shape)
+        #print(self.L_in)
+        '''
+        print('times', self.t_data)
+        print('dots')
+        for i in range(self.L_in.shape[0]):
+            print('single link', i)
+            a1 = (jnp.dot(k_in, self.x_in_receiver[i,:,:]))
+            a2 = (jnp.dot(k_in,  self.x_in_emitter[i,:,:])/299792458.0)
+            delay0 = self.t_data - a1
+            delay1 = self.t_data-a2-self.L_in[i]
+        
+            print('delay0', delay1)
+            print('int_delay0', np.floor(delay0*self.sampling_frequency).astype(int))
+            print('fraction0:', (delay0)*self.sampling_frequency- np.floor((delay0)*self.sampling_frequency))
+            print()
+            print('delay1', delay1)
+            print('int_delay1', np.floor(delay1*self.sampling_frequency).astype(int))
+            print('fraction1:', (delay1)*self.sampling_frequency- np.floor((delay1)*self.sampling_frequency))
+            print()
+            print('delay dif:', delay0-delay1)
+            print()
+            '''
+            
+        
+        #print('orbits')
+        #print('k',k_in)
+        #print('x',a1[0])
+        #print('y',a1[1])
+        #print('z',a1[2])
+        
         y_gw = self.response_gen(
             y_gw,
             self.t_data,
             k_in,
             u_in,
             v_in,
-            #self.dt,
-            #self.num_pts,
             self.link_space_craft_0_in,
             self.link_space_craft_1_in,
             input_in,
@@ -676,24 +711,25 @@ class pyResponseTDI(object):
             #self.order,
             self.sampling_frequency,
             self.buffer_integer,
-            self.A_in,
-            self.deps,
+            #self.A_in,
+            #self.deps,
             #len(self.A_in),
-            self.E_in,
+            #self.E_in,
             self.projections_start_ind,
             self.x_in_receiver,
             self.x_in_emitter,
             self.L_in,
             self.num_orbit_inputs,
         )
-        print('single-link responses generated!')
-        '''
-        y_gw, t_data, k, u, v, input_in, link_space_craft_0, link_space_craft_1,
-             x_in_receiver, x_in_emitter, L_in, A_arr, deps, E_arr,
-             buffer_integer, sampling_frequency, projections_start_ind'''
-
+        #print('single-link responses generated!')
+        
+        
+        #print('y_gw', y_gw.reshape(self.nlinks ,self.num_pts))
+        
+        #for i in range(self.nlinks):
+            #print('single link ', i,'max:' ,  np.max(np.abs(y_gw[i])))
+            
         self.y_gw_flat = y_gw
-        print(y_gw.shape)
         self.y_gw_length = self.num_pts
 
     @property
@@ -731,7 +767,6 @@ class pyResponseTDI(object):
 
         # y_gw entered directly
         if y_gw is not None:
-            print('what')
             assert y_gw.shape == (len(self.link_space_craft_0_in), self.num_pts)
             self.y_gw_flat = y_gw.copy()#.flatten().copy()
             self.y_gw_length = self.num_pts
@@ -741,43 +776,52 @@ class pyResponseTDI(object):
                 "Need to either enter projection array or have this code determine projections."
             )
 
-        for j in range(self.num_channels):
+        for j in range(3):
             for link_ind, sign in self.channels_no_delays[j]:
                 self.delayed_links_flat.at[j].set(self.delayed_links_flat[j] + sign * self.y_gw[link_ind])
 
         self.delayed_links_flat = self.delayed_links_flat#.flatten()
 
-        print('converting to tdi variables')
+        #print('converting to tdi variables')
         
-        self.tdi_gen(
+        print('tdi delays:')
+        for i in range(self.num_channels):
+            l = ['X','Y','Z',]
+            print(l[i],':', self.tdi_delays[i,0,4])
+        
+        XYZ = self.tdi_gen(
             self.delayed_links_flat,
             self.y_gw_flat,
             #self.y_gw_length,
-            np.zeros(self.num_orbit_inputs),
+            #jnp.zeros(self.num_orbit_inputs),
             self.tdi_delays,
             #self.num_pts,
             #self.dt,
             self.link_inds,
             self.tdi_signs,
-            self.num_tdi_delay_comps,
-            self.num_channels,
+            #self.num_tdi_delay_comps,
+            #self.num_channels,
             #self.order,
             self.sampling_frequency,
             self.buffer_integer,
-            self.A_in,
-            self.deps,
-            #len(self.A_in),
-            self.E_in,
             self.tdi_start_ind,
         )
         print('done!')
+        #print(XYZ.shape)
+        
+        X, Y, Z = (XYZ[0], XYZ[1], XYZ[2])
 
+        '''print('TDI response maxes are:',)
+        print(self.xp.max(self.xp.abs(X)))
+        print(self.xp.max(self.xp.abs(Y)))
+        print(self.xp.max(self.xp.abs(Z)))'''
+        
         if self.tdi_chan == "XYZ":
-            X, Y, Z = self.XYZ
+            X, Y, Z = (XYZ[0], XYZ[1], XYZ[2])#self.XYZ
             return X, Y, Z
 
         elif self.tdi_chan == "AET" or self.tdi_chan == "AE":
-            X, Y, Z = self.XYZ
+            #X, Y, Z = self.XYZ
             A, E, T = AET(X, Y, Z)
             if self.tdi_chan == "AET":
                 return A, E, T
@@ -923,7 +967,7 @@ class ResponseWrapper:
 
         # transform polar angle
         if not self.is_ecliptic_latitude:
-            beta = np.pi / 2.0 - beta
+            beta = jnp.pi / 2.0 - beta
 
         # add the new Tobs and dt info to the waveform generator kwargs
         kwargs["T"] = self.Tobs
