@@ -343,7 +343,7 @@ class SpaceBased(Detector):
             mask_array = maskbool(self.frequencies, self.armlength, resolution = self.masking_resolution)
 
             res = jnp.einsum('ji,ijk,ki->i', x, inv_cov, y.conj()).real
-            return jnp.sum(res, where = maskarray)
+            return jnp.sum(res, where = mask_array)
 
         elif self.SNR_method == 'smoothing':
             raise NotImplementedError

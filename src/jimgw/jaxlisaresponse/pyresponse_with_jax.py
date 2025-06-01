@@ -3,10 +3,15 @@ from jax.scipy.special import factorial
 import jax.numpy as jnp
 from functools import partial
 
-jax.config.update("jax_enable_x64", True)
+#jax.config.update("jax_enable_x64", False)
 
+# half_order * 2 + 1 is the polynomial order for your lagrange interpolation
 half_order = 12
 polyarr = jnp.arange(-half_order,+half_order+1)
+
+# this variable determines how large each chunk of your computations will be. 
+# this is important so that you don't demand too much memory
+#block_size = 100000
 
 @jax.jit
 def denominator(i):
@@ -15,7 +20,8 @@ def denominator(i):
 
 den_array = jax.vmap(denominator)(jnp.arange(-half_order,+half_order+1))
 
-@jax.jit
+
+@jax.checkpoint#jit
 def lagrange_interp(input_in, integer_delay, e, start_input_ind):
     
     integer_delay = jnp.clip(integer_delay, start_input_ind , len(input_in)-half_order).astype(int)
@@ -32,41 +38,40 @@ def lagrange_interp(input_in, integer_delay, e, start_input_ind):
     for i in range(-half_order,half_order+1):
         
         #jnp.sum(jnp.asarray(hp_arr) * polynoms / den_array)#trunked_den)
-        y_arr.append((input_in[(i  + integer_delay)].real))# hp_arr.at[i].add(input_in[ind].real)
+        y_arr.append((input_in[(i  + integer_delay)].real)* polynoms[i+half_order] / den_array[i+half_order])# hp_arr.at[i].add(input_in[ind].real)
     
-    res = jnp.sum(jnp.asarray(y_arr) * polynoms / den_array)
+    res = jnp.sum(jnp.asarray(y_arr) )
     
     
     return res
         
     
 
-@jax.jit
+@jax.checkpoint#jit
 def complex_lagrange_interp(input_in, integer_delay, e, start_input_ind):
     
     integer_delay = jnp.clip(integer_delay, start_input_ind , len(input_in)-half_order).astype(int)
     
     def lagrange_polynom(i):
         # spits out the unnormed lagrange polynomial
-        # l_i(e) = (\prod_{j=-13}^{12}(e-j) ) / (e-i)
-        return jnp.prod(jax.vmap(lambda k: e-k)(polyarr).at[i+half_order].set(1)) 
+        # l_i(e) = (\prod_{j=-13}^{12}(e-j) ) / (e-i) / (weights)
+        return jnp.prod(jax.vmap(lambda k: e-k)(polyarr).at[i+half_order].set(1)) / den_array[i+half_order]
     
-    polynoms = jax.vmap(lagrange_polynom)(polyarr).astype(jnp.float32)
+    #polynoms = jax.vmap(lagrange_polynom)(polyarr).astype(jnp.float32)
     
-    hp_arr = []#jnp.zeros(25)
-    hc_arr = []#jnp.zeros(25)
+    #hp_arr = []#jnp.zeros(25)
+    #hc_arr = []#jnp.zeros(25)
+    
+    res_hp = 0.0
+    res_hc = 0.0
     
     for i in range(-half_order,+half_order+1):
         
+        polynom = lagrange_polynom(i) 
         #jnp.sum(jnp.asarray(hp_arr) * polynoms / den_array)#trunked_den)
-        hp_arr.append((input_in[(i  + integer_delay).astype(int)].real))
+        res_hp += (input_in[(i  + integer_delay).astype(int)].real) * polynom
         
-        hc_arr.append((input_in[(i  + integer_delay).astype(int)].imag))
-    
-    #ind_down = (-12 + integer_delay - start_input_ind).astype(int)
-    
-    res_hp = jnp.sum(jnp.asarray(hp_arr) * polynoms / den_array)#trunked_den) #jax.vmap(lambda i: input_in[i+ind_down].real*polynoms[i]/den_array[i])(jnp.arange(25)).sum
-    res_hc = jnp.sum(jnp.asarray(hc_arr) * polynoms / den_array)
+        res_hc += (input_in[(i  + integer_delay).astype(int)].imag) * polynom
     
     return res_hp, res_hc
 
@@ -88,7 +93,8 @@ def response(y_gw, t_data, k, u, v,
     k,u,v - 3D base vectors in , denotes GW's direction (k is direction of propagation) 
     
     '''
-    num_links, num_pts = y_gw.shape
+    num_links, num_blocks, block_size = y_gw.shape
+    num_pts = num_blocks * block_size
     
     k_dot_x0 = jnp.einsum('i,jik->jk', k, x_in_receiver)
     k_dot_x1 = jnp.einsum('i,jik->jk', k, x_in_emitter)
@@ -111,6 +117,7 @@ def response(y_gw, t_data, k, u, v,
         v_dot_n = jnp.dot(v0, n0)
         return 0.5 * (u_dot_n**2 - v_dot_n**2), u_dot_n * v_dot_n
 
+    #@jax.checkpoint
     def compute_delay(link_i, i):
         
         # (time-dependent) coordinate location of the receiving spacecraft
@@ -138,34 +145,48 @@ def response(y_gw, t_data, k, u, v,
 
         start_input_ind = buffer_integer
         
+        interp = jax.jit(complex_lagrange_interp)
         
-        hp_del0, hc_del0 = complex_lagrange_interp(input_in, integer_delay0[link_i, i], fraction0[link_i, i], start_input_ind)         
-        hp_del1, hc_del1 = complex_lagrange_interp(input_in, integer_delay1[link_i, i], fraction1[link_i, i], start_input_ind)
+        hp_del0, hc_del0 = interp(input_in, integer_delay0[link_i, i], fraction0[link_i, i], start_input_ind)
+        hp_del1, hc_del1 = interp(input_in, integer_delay1[link_i, i], fraction1[link_i, i], start_input_ind)
 
         pre_factor = 1.0 / (1.0 - k_dot_n)
         large_factor = (hp_del0 - hp_del1) * xi_p + (hc_del0 - hc_del1) * xi_c
-
-        return pre_factor * large_factor
+        
+        
+        return (pre_factor * large_factor)
 
     # Vectorize over delays for each link
-    def compute_link(link_i):
-        return jax.vmap(lambda i: compute_delay(link_i, i))(jnp.arange(projections_start_ind, num_pts))
+    '''def compute_link(i):
+            return jax.vmap(lambda link_i: compute_delay(link_i, i))(jnp.arange(num_links))
 
-    # Vectorize over all links
-    for link in range(num_links):
-        updated = compute_link(link)
-        y_gw = y_gw.at[link, projections_start_ind:].set(updated)
+    # Vectorize over all blocks
+    updated =[]
+    for idx in range(projections_start_ind, num_pts, block_size):
+        idx_max = min((idx+block_size, num_pts))
+        updated.append(jax.vmap(compute_link)(jnp.arange(idx, idx_max)))
+        
+    y_gw = y_gw.at[:, projections_start_ind:].set(jnp.concatenate(updated).T)'''
     
+    
+    def compute_link(y,i):
+        def compute_block(k):
+            response = jax.vmap(lambda link_i: compute_delay(link_i, k))(jnp.arange(num_links))
+            return response
+        res = jax.vmap(compute_block)(i*block_size + jnp.arange(block_size))
+        y = y.at[:,i].set(res.T)
+        
+        return y, None
+    
+    #y_gw, _ = jax.lax.scan(scan_step, y_gw, , block_size))
+    
+    y_gw, _ = jax.lax.scan(compute_link, y_gw, jnp.arange(projections_start_ind // block_size, num_blocks))
+
     # Update y_gw from projections_start_ind onward
-    return y_gw
+    return y_gw.reshape(num_links, num_pts)
 
 
 
-
-'''
-delayed_links, y_gw, num_inputs, num_orbit_info, delays, num_pts, dt, link_inds, tdi_signs, num_units, num_channels,
-               order, sampling_frequency, buffer_integer, A_in, deps, num_A, E_in, tdi_start_ind)
-'''
 
 @partial(jax.jit, static_argnums = (-1,) )
 def TDI_delay(delayed_links, input_links, delays, link_inds, tdi_signs,
@@ -177,46 +198,54 @@ def TDI_delay(delayed_links, input_links, delays, link_inds, tdi_signs,
     Parameters:
     - input_links: shape (num_links, num_inputs)
     - delays: shape (num_channels, num_units, num_pts)
-    - delayed_links: shape (num_channels, num_pts)
+    - delayed_links: shape (num_channels, num_pts // block_size, block_size)
     """
 
     num_channels, num_units, num_pts = delays.shape
     num_inputs = input_links.shape[1]
-    
+    block_size = delayed_links.shape[-1]
     #print(input_links)
 
-    def compute_delayed(channel_i):
-        def compute_unit(unit_i):
+    def compute_delayed(channel_i, unit_i, i):
+        link_i = link_inds[channel_i,unit_i]
             
-            link_i = link_inds[channel_i,unit_i]
+        sign = tdi_signs[unit_i]
             
-            sign = tdi_signs[unit_i]
-            
-            link_input = input_links[link_i]
-            delay_arr = delays[channel_i, unit_i]
-
-            def compute_delay(i):
-                delay = delay_arr[i] # i feel like there should be an extra term here
-                integer_delay = jnp.floor(delay * sampling_frequency).astype(int)
+        link_input = input_links[link_i]
+        delay_arr = delays[channel_i, unit_i]
+        
+        delay = delay_arr[i] # i feel like there should be an extra term here
+        integer_delay = jnp.floor(delay * sampling_frequency).astype(int)
                 
-                e = ( -integer_delay + delay * sampling_frequency)
+        e = ( -integer_delay + delay * sampling_frequency)
                 
-                start_input_ind = integer_delay - buffer_integer
+        start_input_ind = integer_delay - buffer_integer
 
-                delayed_val = lagrange_interp(link_input, integer_delay, e, start_input_ind)
+        delayed_val = lagrange_interp(link_input, integer_delay, e, start_input_ind)
                 
                 
-                return sign * delayed_val
+        return sign * delayed_val
 
-            return jax.vmap(compute_delay)(jnp.arange(tdi_start_ind, num_pts))
-
-        return jax.vmap(compute_unit)(jnp.arange(num_units)).sum(axis=0)
+    
+    def scan_step(y,block_i):
+        
+        def compute_units(channel_i,k):
+            return jax.vmap(lambda unit_i: compute_delayed(channel_i,unit_i,k))(jnp.arange(num_units)).sum(axis=0)
+        def compute_channel(k):
+            return jax.vmap(lambda channel_i: compute_units(channel_i, k))(jnp.arange(num_channels))
+        
+        y = y.at[:,block_i].set(
+            jax.vmap(compute_channel)(block_i * block_size + jnp.arange(block_size)).T
+        )
+        
+        
+        return y, None
+    
 
     #updated = jax.vmap(compute_delayed)(jnp.arange(num_channels))
     #print(jnp.max(jnp.abs(updated)))
-    #updated = updated
-    for chan in range(num_channels):
-        updated = compute_delayed(chan)
-        delayed_links = delayed_links.at[chan, tdi_start_ind:].set(updated)
+    #
+    
+    delayed_links, _ = jax.lax.scan(scan_step, delayed_links, jnp.arange(tdi_start_ind // block_size, num_pts//block_size))
 
-    return delayed_links
+    return delayed_links.reshape(num_channels, num_pts)

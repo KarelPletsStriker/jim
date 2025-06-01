@@ -75,7 +75,7 @@ class TransientLikelihoodFD(SingleEventLiklihood):
         """
         log_likelihood = 0
         
-        nospacedecs = jnp.array([
+        nospacedecs = np.array([
             not isinstance(detector, SpaceBased) for detector in self.detectors
         ])
         
