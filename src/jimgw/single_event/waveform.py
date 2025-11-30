@@ -206,10 +206,10 @@ class GBWave(Waveform): # Galactic Binary GW
 
         YRSID_SI = 31558149.763545603
         # get the t array
-        t = cp.arange(0.0, T * YRSID_SI, dt)
-        cos2psi = cp.cos(2.0 * psi)
-        sin2psi = cp.sin(2.0 * psi)
-        cosiota = cp.cos(iota)
+        t = jnp.arange(0.0, T * YRSID_SI, dt)
+        cos2psi = jnp.cos(2.0 * psi)
+        sin2psi = jnp.sin(2.0 * psi)
+        cosiota = jnp.cos(iota)
 
         fddot = 11.0 / 3.0 * fdot ** 2 / f
 
@@ -219,8 +219,8 @@ class GBWave(Waveform): # Galactic Binary GW
             - phi0
         )
 
-        hSp = -cp.cos(phase) * A * (1.0 + cosiota * cosiota)
-        hSc = -cp.sin(phase) * 2.0 * A * cosiota
+        hSp = -jnp.cos(phase) * A * (1.0 + cosiota * cosiota)
+        hSc = -jnp.sin(phase) * 2.0 * A * cosiota
 
         hp = hSp * cos2psi - hSc * sin2psi
         hc = hSp * sin2psi + hSc * cos2psi
