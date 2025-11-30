@@ -30,14 +30,14 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, PRNGKeyArray, Float, jaxtyped
 
-
 from jimgw.jim import Jim
 from jimgw.single_event.detector import Detector
 from jimgw.single_event.wave import Polarization
 from jimgw.single_event.waveform import Waveform
 
-
-
+# respirax imports
+from respirax import LISAResponse
+from respirax.utils import YRSID_SI
 
 
 
@@ -117,6 +117,23 @@ class SpaceBased(Detector):
         
         # Newly added variables by Karel
         self.orbit = kwargs.get('orbit','equal') # equal or ESA orbit. for response function of fastlisaresponse
+        
+        def get_orbit(self):        
+            if self.orbit == "equal":
+                    orbit = EqualArmlengthOrbits(use_gpu = self.use_gpu)
+                    orbit.configure(linear_interp_setup=True)
+                    #orbit = '/jimgw/single_event/orbits/equalarmlength-trailing-fit.h5'
+                    return orbit
+            elif self.orbit == "ESA":
+                    orbit = ESAOrbits(use_gpu = self.use_gpu)
+                    orbit.configure(linear_interp_setup=True)
+                    #orbit = '/jimgw/single_event/orbits/esa-trailing-orbits.h5'
+                    return orbit
+            else:
+                    raise NotImplementedError
+
+        self.orbits_data = self.get_orbit()
+            
         self.channel = kwargs.get('tdi channel', 'XYZ') # AET, XYZ or perhaps later Sagnac
         self.tdi_gen = kwargs.get('tdi_gen', '1st generation')
         self.use_gpu = kwargs.get('use_gpu', True ) 
@@ -124,35 +141,23 @@ class SpaceBased(Detector):
         self.order = kwargs.get('order',25) # order of lagrangian interpolation, fastlisaresponse parameter
         
         self.detector_parameters = {
-            'T' : kwargs.get('T', 2),  # Duration of the simulation, in years
-            'dt' : kwargs.get('dt', 2.5),
+            'T' : kwargs.get('T', 1),  # Duration of the simulation, in years
+            'dt' : kwargs.get('dt', 2),
             't0' : kwargs.get('t0', 10000.0), # time at which signal starts (chops off data at start of waveform where information is not correct)
-            'index_beta' : kwargs.get('index_beta',7),
-            'index_lambda' : kwargs.get('index_lambda',6)
         }
 
         self.SNR_method = kwargs.get('SNR_method', 'masking') # other options are regularization, smoothing (to be added) and None
-
+        
+        self.response  = LISAResponse(
+                        sampling_frequency= 1/self.detector_parameters['dt'],
+                        num_pts= int(self.detector_parameters['T'] / self.detector_parameters['dt'] * YRSID_SI),
+                        order=self.order,    # Order of the Lagragian interpolation
+                        orbits_data=self.orbits_data,
+                        t0=self.detector_parameters['t0'],    # Start time buffer in seconds
+)
         if self.SNR_method == 'masking':
             self.masking_resolution = kwargs.get('masking_resolution', 1e-2)
         
-    
-    def get_orbit(self):
-        
-        if self.orbit == "equal":
-            #orbit = EqualArmlengthOrbits(use_gpu = self.use_gpu)
-            #orbit.configure(linear_interp_setup=True)
-
-            orbit = '/jimgw/single_event/orbits/equalarmlength-trailing-fit.h5'
-            return self.src_env+orbit
-        elif self.orbit == "ESA":
-            #orbit = ESAOrbits(use_gpu = self.use_gpu)
-            #orbit.configure(linear_interp_setup=True)
-
-            orbit = '/jimgw/single_event/orbits/esa-trailing-orbits.h5'
-            return self.src_env+orbit
-        else:
-            raise NotImplementedError
 
     @staticmethod
     def _get_arm(
@@ -229,25 +234,8 @@ class SpaceBased(Detector):
             tdi_chan=self.channel,
             orbit_kwargs = dict(orbit_file=self.get_orbit()))
 
-        wrapper = ResponseWrapper(
-            waveform,
-            detector_parameters['T'],
-            detector_parameters['dt'],
-            detector_parameters['index_lambda'],
-            detector_parameters['index_beta'],
-            t0=detector_parameters['t0'],
-            flip_hx=False,  # set to True if waveform is h+ - ihx
-            use_gpu=self.use_gpu,
-            remove_sky_coords=True,  # True if the waveform generator does not take sky coordinates
-            is_ecliptic_latitude=True,  # False if using polar angle (theta)
-            remove_garbage=True,  # removes the beginning of the signal that has bad information
-            #orbits=self.get_orbit(),
-            **tdi_kwargs,
-        )
         
-        chans = wrapper(*wave_parameters)
-        
-        return jnp.array(chans) #np.array((chan1, chan2, chan3)) # i dont know how you would generalise this to all possible sources
+        return chans #np.array((chan1, chan2, chan3)) # i dont know how you would generalise this to all possible sources
 
 
     def fd_response(
