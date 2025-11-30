@@ -2,7 +2,7 @@
 
 """
 LISA code written by Karel Plets - Implementing the SpaceBased Detector Class
-Date: 28/03/2025
+Date: 01/12/2025
 
 Notes:  ---------- CUMULATIVE VERSION-----------------
         
@@ -47,7 +47,7 @@ def S_ij_TM(f, A = 1):
         
     # write everything in SI units
     c = 299792458 #m/s
-    pi = np.pi
+    pi = jnp.pi
     
     S = A**2 * 1e-30 * (1 + ( 4e-4 / f )**2) * (1 + (f/8e-3)**4) / (2*pi*c*f)**2
 
@@ -58,7 +58,7 @@ def S_ij_OMS(f, P = 1):
         
     # write everything in SI units
     c = 299792458 #m/s
-    pi = np.pi
+    pi = jnp.pi
     
     S = P**2 *1e-24 * (1 + ( 2e-3 / f )**4) * (2*pi*f/c)**2
 
@@ -432,7 +432,7 @@ class SpaceBased(Detector):
         
         '''
         def D_ij(f,i,j):
-            return np.exp(-2j*np.pi*f*Lij[i,j])
+            return jnp.exp(-2j*np.pi*f*Lij[i,j])
 
         
         XXYYZZ = list()
