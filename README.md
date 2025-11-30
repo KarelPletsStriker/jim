@@ -54,7 +54,7 @@ Please cite the accompanying paper, [Wong, Isi, Edwards (2023)](https://github.c
 
 # Changes made for the Space Based Detector Class
 
-In preparation of the Space detector class, two new python packages need to be installed additionally:  [`fastlisaresponse`](https://github.com/mikekatz04/lisa-on-gpu/tree/master) and [`lisatools`](https://github.com/mikekatz04/LISAanalysistools), managed by Michael Katz. UPDATE: since the SpaceDetector class now fully generates the response functions within the package, you only need to install lisatools if you want to take the armlengths (which is important for the PSD and CSD), but this could also be taken directly from the orbit files.
+In preparation of the Space detector class, two new python packages need to be installed additionally:  [`fastlisaresponse`](https://github.com/mikekatz04/lisa-on-gpu/tree/master) and [`lisatools`](https://github.com/mikekatz04/LISAanalysistools), managed by Michael Katz. UPDATE: Since the package now generates the response through the package [`respirax`](https://github.com/mj-will/respirax), you need to install lisatools (if you want to take the armlengths, which is important for the PSD and CSD, but this could also be taken directly from the orbit files), as well as respirax.
 
 Their installation is as follows (done after the `JIM` installation)
 
@@ -70,5 +70,5 @@ Then install the following packages via pip:
 pip install multispline pygments matplotlib Cython numpy scipy h5py requests ipython astropy
 pip install cupy-cuda12x
 pip install lisaanalysistools
-pip install 
+pip install git+https://github.com/mj-will/respirax.git
 ```
