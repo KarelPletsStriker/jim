@@ -95,20 +95,6 @@ class SpaceBased(Detector):
         self.name = name
         
         modes = kwargs.get("mode", "pc")
-        
-
-
-        '''
-        I think these are useless parameters for LISA?
-        
-        self.latitude = kwargs.get("latitude", 0)
-        self.longitude = kwargs.get("longitude", 0)
-        self.elevation = kwargs.get("elevation", 0)
-        self.xarm_azimuth = kwargs.get("xarm_azimuth", 0)
-        self.yarm_azimuth = kwargs.get("yarm_azimuth", 0)
-        self.xarm_tilt = kwargs.get("xarm_tilt", 0)
-        self.yarm_tilt = kwargs.get("yarm_tilt", 0)
-        '''
 
         self.polarization_mode = [Polarization(m) for m in modes]
         self.frequencies = jnp.array([])
@@ -197,6 +183,7 @@ class SpaceBased(Detector):
     
     @property
     def vertex(self) -> Float[Array, " 3"]:
+            
         """
         Detector vertex coordinates in the reference celestial frame. Based
         on arXiv:gr-qc/0008066 Eqs. (B11-B13) except for a typo in the
@@ -208,15 +195,15 @@ class SpaceBased(Detector):
             detector vertex coordinates.
         """
         raise NotImplementedError
-        
+            
     def td_response(
         self,
         waveform: Waveform, # GW class
         detector_parameters : dict[Float], # Simulation Parameters: 'T' (total duration), 't0' (start time, mostly to scrap shitty data), 'dt' (time resolution)
         # 'index_lambda' (), 'index_beta' ()
-        wave_parameters: list[Float], # waveform specific parameters
-        **kwargs
-    )-> Float[Array, " 3 n_sample"]:
+        wave_parameters: dict[Float], # waveform specific parameters
+		sky_parameters: dict[Float], # sky localization parameters (lam, beta)
+        **kwargs    )-> Float[Array, " 3 n_sample"]:
         """
         Calculates the time domain response functions for a given GW source (currently only GBs, I'll figure out how to generalise later)
         
@@ -224,66 +211,52 @@ class SpaceBased(Detector):
         --------
         Array with 3 channels (depending on the tdi channel either XYZ or AET)
         
-        """
-        
-        # XYZ Waveform
-
-        tdi_kwargs = dict(
-            order=self.order, 
-            tdi=self.tdi_gen,
-            tdi_chan=self.channel,
-            orbit_kwargs = dict(orbit_file=self.get_orbit()))
-
-        
-        return chans #np.array((chan1, chan2, chan3)) # i dont know how you would generalise this to all possible sources
+        """ 
+		wave_parameters = [
+            wave_parameters['A'],
+            wave_parameters['f'],
+            wave_parameters['fdot'],
+            wave_parameters['iota'],
+            wave_parameters['phi0'],
+            wave_parameters['psi'],
+        ]
+		
+        h = waveform(*wave_parameters, T=self.detector_parameters['T'], dt=self.detector_parameters['dt'])
+		
+		channels = response(
+			h,
+			sky_parameters['lam'],
+			sky_parameters['lam'],
+			tdi_type=self.tdi_gen,
+			tdi_channels= self.channel,)
+		
+        return channels 
 
 
     def fd_response(
         self,
         waveform: Waveform, # GW class
-        params: dict[Float], # waveform specific parameters
+        wave_parameters: dict[Float], # waveform specific parameters
+		sky_parameters: dict[Float], # sky localization parameters
         **kwargs
     ) -> Float[Array, " 3 n_sample"]:
         """
         Turns the td-response into a fd-response by just FFTing
         note: you should probably keep the window in mind (to be implemented)
         """
-        
-        
-        
-        wave_parameters = [
-            params['A'],
-            params['f'],
-            params['fdot'],
-            params['iota'],
-            params['phi0'],
-            params['psi'],
-            params['lam'],
-            params['beta']
-        ]
+		
+		#sky_parameters = dict( 'lam': params['lam'], 'beta': params['beta'])
 
         
         chans = self.td_response(
             waveform, # GW class
             self.detector_parameters,
             wave_parameters, # waveform specific parameters
+            sky_parameters, # sky localization parameters
             **kwargs)
         
         response = jnp.fft.rfft(chans) # add window to this to avoid Gibbs phenomena
         freqs    = jnp.fft.rfftfreq(len(chans[0]), d = self.detector_parameters['dt'])
-        
-        '''
-        if self.orbit == 'equal':
-            orbitclass = equal
-            L = orbitclass.get_light_travel_times(0.0, 12)
-            
-            mask_array = jnp.array(maskbool(freqs, L, resolution = 0))
-            response   = [jnp.where(mask_array,chan, jnp.zeros(len(chan))) for chan in response]
-            #freqs      = jnp.where(mask_array,freqs)
-            
-        elif self.orbit == 'ESA':
-            raise NotImplementedError'''
-            
         
         if kwargs.get('with_freqs', False) == True:
             # easiest way to get the correct frequencies
