@@ -36,11 +36,8 @@ from jimgw.single_event.wave import Polarization
 from jimgw.single_event.waveform import Waveform
 
 # respirax imports
-from respirax import LISAResponse
+from respirax import LISAResponse, get_orbit_path, load_lisa_orbits
 from respirax.utils import YRSID_SI
-
-
-
 
 
 def S_ij_TM(f, A = 1):
@@ -101,25 +98,11 @@ class SpaceBased(Detector):
         self.data = jnp.array([])
         self.psd = jnp.array([])
         
-        # Newly added variables by Karel
-        self.orbit = kwargs.get('orbit','equal') # equal or ESA orbit. for response function of fastlisaresponse
-        
-        def get_orbit(self):        
-            if self.orbit == "equal":
-                    orbit = EqualArmlengthOrbits(use_gpu = self.use_gpu)
-                    orbit.configure(linear_interp_setup=True)
-                    #orbit = '/jimgw/single_event/orbits/equalarmlength-trailing-fit.h5'
-                    return orbit
-            elif self.orbit == "ESA":
-                    orbit = ESAOrbits(use_gpu = self.use_gpu)
-                    orbit.configure(linear_interp_setup=True)
-                    #orbit = '/jimgw/single_event/orbits/esa-trailing-orbits.h5'
-                    return orbit
-            else:
-                    raise NotImplementedError
+        # Orbit data, lisaanalysistools orbit files used
+        self.orbit = kwargs.get('orbit','equalarmlength') # 'equalarmlength' or 'esa'orbit. for response function of fastlisaresponse
+        self.orbits_data = load_lisa_orbits(get_orbit_path(self.orbit))
 
-        self.orbits_data = self.get_orbit()
-            
+		
         self.channel = kwargs.get('tdi channel', 'XYZ') # AET, XYZ or perhaps later Sagnac
         self.tdi_gen = kwargs.get('tdi_gen', '1st generation')
         self.use_gpu = kwargs.get('use_gpu', True ) 
@@ -517,7 +500,7 @@ class SpaceBased(Detector):
 
 LISA_XYZ_equal = SpaceBased(
         'LISA_XYZ_equal',
-        orbit = 'equal',
+        orbit = 'equalarmlength',
         channel = 'XYZ',
         tdi_gen = '1st generation',
         use_gpu = True,
@@ -526,7 +509,7 @@ LISA_XYZ_equal = SpaceBased(
             
 LISA_AET_equal = SpaceBased(
         'LISA_AET_equal',
-        orbit = 'equal',
+        orbit = 'equalarmlength',
         channel = 'AET',
         tdi_gen = '1st generation',
         use_gpu = True,
