@@ -206,7 +206,7 @@ class SpaceBased(Detector):
 		
         h = waveform(*wave_parameters, T=self.detector_parameters['T'], dt=self.detector_parameters['dt'])
 		
-		channels = response(
+		channels = self.response(
 			h,
 			sky_parameters['lam'],
 			sky_parameters['lam'],
