@@ -20,7 +20,6 @@ import h5py
 from astropy import units as un
 
 from lisatools.detector import EqualArmlengthOrbits, ESAOrbits
-from jimgw.jaxlisaresponse.response import pyResponseTDI, ResponseWrapper
 
 equal = EqualArmlengthOrbits()
 equal.configure(linear_interp_setup=True)
@@ -36,7 +35,7 @@ from jimgw.single_event.wave import Polarization
 from jimgw.single_event.waveform import Waveform
 
 # respirax imports
-from respirax import LISAResponse, get_orbit_path, load_lisa_orbits
+from respirax import LISAResponse, get_orbit_file_path, load_lisa_orbits
 from respirax.utils import YRSID_SI
 
 
@@ -98,16 +97,16 @@ class SpaceBased(Detector):
         self.data = jnp.array([])
         self.psd = jnp.array([])
         
-        # Orbit data, lisaanalysistools orbit files used
-        self.orbit = kwargs.get('orbit','equalarmlength') # 'equalarmlength' or 'esa'orbit. for response function of fastlisaresponse
-        self.orbits_data = load_lisa_orbits(get_orbit_path(self.orbit))
-
-		
+        
         self.channel = kwargs.get('tdi channel', 'XYZ') # AET, XYZ or perhaps later Sagnac
         self.tdi_gen = kwargs.get('tdi_gen', '1st generation')
         self.use_gpu = kwargs.get('use_gpu', True ) 
-        self.src_env = kwargs.get('src_env','/data/leuven/347/vsc34717/python/miniconda3/envs/lisa102/lib/python3.10/site-packages/')
         self.order = kwargs.get('order',25) # order of lagrangian interpolation, fastlisaresponse parameter
+        
+        # Orbit data, lisaanalysistools orbit files used
+        self.orbit = kwargs.get('orbit','equalarmlength') # 'equalarmlength' or 'esa'orbit. for response function of fastlisaresponse
+        self.orbits_data = load_lisa_orbits(get_orbit_file_path(self.orbit))
+        
         
         self.detector_parameters = {
             'T' : kwargs.get('T', 1),  # Duration of the simulation, in years
@@ -182,10 +181,9 @@ class SpaceBased(Detector):
     def td_response(
         self,
         waveform: Waveform, # GW class
-        detector_parameters : dict[Float], # Simulation Parameters: 'T' (total duration), 't0' (start time, mostly to scrap shitty data), 'dt' (time resolution)
+        #detector_parameters : dict[Float], # Simulation Parameters: 'T' (total duration), 't0' (start time, mostly to scrap shitty data), 'dt' (time resolution)
         # 'index_lambda' (), 'index_beta' ()
-        wave_parameters: dict[Float], # waveform specific parameters
-		sky_parameters: dict[Float], # sky localization parameters (lam, beta)
+        wave_parameters: dict[Float], # all relevant parameters
         **kwargs    )-> Float[Array, " 3 n_sample"]:
         """
         Calculates the time domain response functions for a given GW source (currently only GBs, I'll figure out how to generalise later)
@@ -195,21 +193,21 @@ class SpaceBased(Detector):
         Array with 3 channels (depending on the tdi channel either XYZ or AET)
         
         """ 
-		wave_parameters = [
-            wave_parameters['A'],
-            wave_parameters['f'],
-            wave_parameters['fdot'],
-            wave_parameters['iota'],
-            wave_parameters['phi0'],
-            wave_parameters['psi'],
+        wave_parameters = [
+            parameters['A'],
+            parameters['f'],
+            parameters['fdot'],
+            parameters['iota'],
+            parameters['phi0'],
+            parameters['psi'],
         ]
 		
         h = waveform(*wave_parameters, T=self.detector_parameters['T'], dt=self.detector_parameters['dt'])
 		
-		channels = self.response(
-			h,
-			sky_parameters['lam'],
-			sky_parameters['lam'],
+        channels = self.response(
+            h,
+			parameters['lam'],
+			parameters['beta'],
 			tdi_type=self.tdi_gen,
 			tdi_channels= self.channel,)
 		
@@ -219,23 +217,18 @@ class SpaceBased(Detector):
     def fd_response(
         self,
         waveform: Waveform, # GW class
-        wave_parameters: dict[Float], # waveform specific parameters
-		sky_parameters: dict[Float], # sky localization parameters
+        parameters: dict, # all relevant parameters
         **kwargs
     ) -> Float[Array, " 3 n_sample"]:
         """
         Turns the td-response into a fd-response by just FFTing
         note: you should probably keep the window in mind (to be implemented)
         """
-		
-		#sky_parameters = dict( 'lam': params['lam'], 'beta': params['beta'])
-
         
         chans = self.td_response(
             waveform, # GW class
             self.detector_parameters,
-            wave_parameters, # waveform specific parameters
-            sky_parameters, # sky localization parameters
+            parameters, # waveform specific parameters
             **kwargs)
         
         response = jnp.fft.rfft(chans) # add window to this to avoid Gibbs phenomena
@@ -297,21 +290,12 @@ class SpaceBased(Detector):
 
         else:
             raise NotImplementedError
-
-
-
-
-            
-
-        
-
     
     
     
     def inject_signal(
         self,
         key: PRNGKeyArray,
-        #freqs: Float[Array, " n_sample"],
         waveform: Waveform, # waveform class of the source 
         params: dict, # contains important noise parameters Aij, Pij, Lij
         
@@ -337,7 +321,7 @@ class SpaceBased(Detector):
     
             return bigPSD
 
-        signals, freqs     = self.fd_response(waveform, params , with_freqs = True)
+        signals, freqs     = self.fd_response(waveform, parameters , with_freqs = True)
         
         # symmetric noise curves
         
